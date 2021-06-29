@@ -134,6 +134,7 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	raftConf.SplitCheck.RegionMaxSize = uint64(conf.Server.RegionSize)
 	raftConf.ApplyWorkerCnt = conf.RaftStore.ApplyWorkerCount
 	raftConf.GrpcRaftConnNum = uint64(conf.RaftStore.GRPCRaftConnNum)
+	raftConf.GrpcUseCompressor = conf.RaftStore.GrpcUseCompressor
 }
 
 func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {

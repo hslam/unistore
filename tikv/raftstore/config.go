@@ -118,6 +118,7 @@ type Config struct {
 	GrpcKeepAliveTime     time.Duration
 	GrpcKeepAliveTimeout  time.Duration
 	GrpcRaftConnNum       uint64
+	GrpcUseCompressor     bool
 
 	Addr          string
 	AdvertiseAddr string
@@ -207,6 +208,7 @@ func NewDefaultConfig() *Config {
 		GrpcKeepAliveTime:        3 * time.Second,
 		GrpcKeepAliveTimeout:     60 * time.Second,
 		GrpcRaftConnNum:          1,
+		GrpcUseCompressor:        false,
 		Addr:                     "127.0.0.1:20160",
 		SplitCheck:               newDefaultSplitCheckConfig(),
 		ApplyWorkerCnt:           4,

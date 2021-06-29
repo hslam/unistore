@@ -46,6 +46,7 @@ type RaftStore struct {
 	RaftElectionTimeoutTicks int    `toml:"raft-election-timeout-ticks"` // raft-election-timeout-ticks times
 	ApplyWorkerCount         int    `toml:"apply-worker-count"`
 	GRPCRaftConnNum          int    `toml:"grpc-raft-conn-num"`
+	GrpcUseCompressor        bool   `toml:"grpc-use-compressor"`
 }
 
 type Engine struct {
@@ -107,6 +108,7 @@ var DefaultConf = Config{
 		RaftElectionTimeoutTicks: 10,
 		ApplyWorkerCount:         4,
 		GRPCRaftConnNum:          2,
+		GrpcUseCompressor:        false,
 	},
 	Engine: Engine{
 		Path:                  "/tmp/badger",

@@ -26,6 +26,7 @@ import (
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -146,13 +147,23 @@ func (c *raftConn) newStream() error {
 	if err != nil {
 		return err
 	}
+	var defaultCallOptions grpc.DialOption
+	if c.cfg.GrpcUseCompressor {
+		defaultCallOptions = grpc.WithDefaultCallOptions(
+			grpc.UseCompressor(gzip.Name),
+		)
+	} else {
+		defaultCallOptions = grpc.WithDefaultCallOptions()
+	}
 	cc, err := grpc.Dial(addr, grpc.WithInsecure(),
 		grpc.WithInitialWindowSize(int32(c.cfg.GrpcInitialWindowSize)),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                c.cfg.GrpcKeepAliveTime,
 			Timeout:             c.cfg.GrpcKeepAliveTimeout,
 			PermitWithoutStream: true,
-		}))
+		}),
+		defaultCallOptions,
+	)
 	if err != nil {
 		return err
 	}
