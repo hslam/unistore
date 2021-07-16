@@ -16,6 +16,7 @@ package tikv
 import (
 	"bytes"
 	"context"
+	"github.com/hslam/socket"
 	"github.com/ngaut/unistore/config"
 	"github.com/ngaut/unistore/engine"
 	"github.com/ngaut/unistore/pd"
@@ -24,6 +25,7 @@ import (
 	"github.com/ngaut/unistore/tikv/enginereader"
 	"github.com/ngaut/unistore/tikv/lockwaiter"
 	"github.com/ngaut/unistore/tikv/raftstore"
+	"github.com/ngaut/unistore/tikv/raftstore/pb"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/coprocessor"
 	"github.com/pingcap/kvproto/pkg/deadlock"
@@ -31,6 +33,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/mpp"
+	"github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
@@ -835,6 +838,10 @@ func (svr *Server) GetLockWaitInfo(c context.Context, request *kvrpcpb.GetLockWa
 	panic("implement me")
 }
 
+func (svr *Server) RaftRPC(msg *raft_serverpb.RaftMessage, empty *pb.Empty) error {
+	return svr.innerServer.RaftRPC(msg, empty)
+}
+
 func (svr *Server) ServeRawRaft(l net.Listener) error {
 	for {
 		conn, err := l.Accept()
@@ -848,6 +855,29 @@ func (svr *Server) ServeRawRaft(l net.Listener) error {
 		}
 		go svr.innerServer.HandleRawRaft(conn)
 	}
+}
+
+func (svr *Server) ServeSocketRaft(l socket.Listener) error {
+	for {
+		conn, err := l.Accept()
+		if err != nil {
+			if opErr, ok := err.(*net.OpError); ok {
+				if opErr.Err.Error() == "use of closed network connection" {
+					return nil
+				}
+			}
+			return err
+		}
+		messages := conn.Messages()
+		go svr.innerServer.HandleSocketRaft(messages)
+	}
+	//return l.ServeMessages(func(messages socket.Messages) (socket.Context, error) {
+	//	return messages, nil
+	//}, func(context socket.Context) error {
+	//	messages := context.(socket.Messages)
+	//	svr.innerServer.HandleSocketRaftOnce(messages)
+	//	return nil
+	//})
 }
 
 func convertToKeyError(err error) *kvrpcpb.KeyError {

@@ -14,6 +14,8 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/protobuf v1.3.4
 	github.com/google/btree v1.0.0
+	github.com/hslam/rpc v0.0.4
+	github.com/hslam/socket v0.0.2
 	github.com/ncw/directio v1.0.4
 	github.com/pingcap/badger v1.5.1-0.20210331054718-0885bbfa8520
 	github.com/pingcap/check v0.0.0-20200212061837-5e12011dc712
@@ -26,7 +28,7 @@ require (
 	github.com/pingcap/tipb v0.0.0-20210326161441-1164ca065d1b
 	github.com/prometheus/client_golang v1.5.1
 	github.com/shirou/gopsutil v3.21.2+incompatible
-	github.com/soheilhy/cmux v0.1.5
+	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/stretchr/testify v1.6.1
 	github.com/tikv/pd v1.1.0-beta.0.20210323121136-78679e5e209d
 	github.com/twmb/murmur3 v1.1.3

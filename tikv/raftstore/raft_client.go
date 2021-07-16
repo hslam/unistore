@@ -16,14 +16,20 @@ package raftstore
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
+	"github.com/hslam/socket"
 	"github.com/ngaut/unistore/raft"
 	"github.com/pingcap/badger/y"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/hslam/rpc"
 	"github.com/ngaut/unistore/pd"
+	"github.com/ngaut/unistore/tikv/raftstore/pb"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
@@ -51,6 +57,9 @@ type raftConn struct {
 
 	rawConn net.Conn
 	rawBuf  []byte
+
+	rpcConn    *rpc.Conn
+	socketConn socket.Messages
 }
 
 func newRaftConn(storeID uint64, cfg *Config, pdCli pd.Client) *raftConn {
@@ -77,7 +86,7 @@ func (c *raftConn) runSender() {
 	for {
 		select {
 		case msg := <-c.msgCh:
-			c.sendRawMsg(msg)
+			c.sendSocketMsg(msg)
 		case <-c.ctx.Done():
 			log.Info("raftConn done")
 			return
@@ -147,6 +156,81 @@ func (c *raftConn) sendRawMsg(msg *raft_serverpb.RaftMessage) {
 		c.rawConn = nil
 	}
 	c.rawBuf = c.rawBuf[:0]
+}
+
+func (c *raftConn) sendSocketMsg(msg *raft_serverpb.RaftMessage) {
+	var err error
+	if c.socketConn == nil {
+		if time.Now().Before(c.nextRetryTime) {
+			// drop the messages directly.
+			return
+		}
+		err = c.newSocketConn()
+		if err != nil {
+			c.nextRetryTime = time.Now().Add(time.Second)
+			log.Warn("failed to create raft raw conn", zap.Error(err))
+			return
+		}
+		log.Info("new raft raw conn")
+	}
+
+	size := msg.Size()
+	data := make([]byte, size)
+	y.Assert(len(data) == size)
+	_, err = msg.MarshalTo(data)
+	y.Assert(err == nil)
+	err = c.socketConn.WriteMessage(data)
+	if err != nil {
+		c.nextRetryTime = time.Now().Add(time.Second)
+		log.Warn("failed to write raft raw message", zap.Error(err))
+		c.socketConn.Close()
+		c.socketConn = nil
+	}
+	chLen := len(c.msgCh)
+	for i := 0; i < chLen; i++ {
+		newMsg := <-c.msgCh
+		size := newMsg.Size()
+		data := make([]byte, size)
+		y.Assert(len(data) == size)
+		_, err = newMsg.MarshalTo(data)
+		y.Assert(err == nil)
+		err = c.socketConn.WriteMessage(data)
+		if err != nil {
+			c.nextRetryTime = time.Now().Add(time.Second)
+			log.Warn("failed to write raft raw message", zap.Error(err))
+			c.socketConn.Close()
+			c.socketConn = nil
+		}
+	}
+}
+
+func (c *raftConn) sendRPCMsg(msg *raft_serverpb.RaftMessage) {
+	var err error
+	if c.rpcConn == nil {
+		if time.Now().Before(c.nextRetryTime) {
+			// drop the messages directly.
+			return
+		}
+		err = c.newRPCConn()
+		if err != nil {
+			c.nextRetryTime = time.Now().Add(time.Second)
+			log.Warn("failed to create raft raw conn", zap.Error(err))
+			return
+		}
+		log.Info("new raft raw conn")
+	}
+	c.rpcConn.Go("Service.RaftRPC", msg, &pb.Empty{}, nil)
+	chLen := len(c.msgCh)
+	for i := 0; i < chLen; i++ {
+		newMsg := <-c.msgCh
+		c.rpcConn.Go("Service.RaftRPC", newMsg, &pb.Empty{}, nil)
+	}
+	if err != nil {
+		c.nextRetryTime = time.Now().Add(time.Second)
+		log.Warn("failed to write raft raw message", zap.Error(err))
+		c.rpcConn.Close()
+		c.rpcConn = nil
+	}
 }
 
 var raftMsgPool = sync.Pool{New: func() interface{} {
@@ -253,6 +337,40 @@ func (c *raftConn) newRawConn() error {
 		return err
 	}
 	c.rawConn = conn
+	return nil
+}
+
+func (c *raftConn) newSocketConn() error {
+	addr, err := c.resolveAddr()
+	if err != nil {
+		return err
+	}
+	rpcAddr, _ := strconv.ParseInt(addr[strings.IndexByte(addr, ':')+1:], 10, 64)
+	Address := fmt.Sprintf(addr[:strings.IndexByte(addr, ':')+1]+"%d", rpcAddr+200)
+
+	sock, err := socket.NewSocket("tcp", nil)
+	if err != nil {
+		return err
+	}
+	conn, err := sock.Dial(Address)
+	if err != nil {
+		return err
+	}
+	c.socketConn = conn.Messages()
+	return nil
+}
+func (c *raftConn) newRPCConn() error {
+	addr, err := c.resolveAddr()
+	if err != nil {
+		return err
+	}
+	rpcAddr, _ := strconv.ParseInt(addr[strings.IndexByte(addr, ':')+1:], 10, 64)
+	Address := fmt.Sprintf(addr[:strings.IndexByte(addr, ':')+1]+"%d", rpcAddr+200)
+	conn, err := rpc.Dial("tcp", Address, "pb")
+	if err != nil {
+		return err
+	}
+	c.rpcConn = conn
 	return nil
 }
 

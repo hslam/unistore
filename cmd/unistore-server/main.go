@@ -16,8 +16,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/hslam/rpc"
 	"github.com/ngaut/unistore/tikv"
-	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"net"
@@ -33,15 +33,19 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/arl/statsviz"
+	"github.com/hslam/socket"
 	"github.com/ngaut/unistore/config"
 	"github.com/ngaut/unistore/pd"
 	"github.com/ngaut/unistore/raft"
+	"github.com/ngaut/unistore/tikv/raftstore/pb"
 	"github.com/pingcap/kvproto/pkg/deadlock"
+	"github.com/pingcap/kvproto/pkg/raft_serverpb"
 	"github.com/pingcap/kvproto/pkg/tikvpb"
 	"github.com/pingcap/log"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"strconv"
 )
 
 var (
@@ -169,15 +173,40 @@ func main() {
 	if err != nil {
 		log.S().Fatal(err)
 	}
-	matcher := cmux.New(l)
-	raftL := matcher.Match(cmux.PrefixMatcher("raft"))
-	grpcl := matcher.Match(cmux.Any())
-	go tikvServer.ServeRawRaft(raftL)
-	go grpcServer.Serve(grpcl)
-	handleSignal(matcher)
-	err = matcher.Serve()
+	//matcher := cmux.New(l)
+	//raftL := matcher.Match(cmux.PrefixMatcher("raft"))
+	//grpcl := matcher.Match(cmux.Any())
+	server := rpc.NewServer()
+	var s Service
+	s = tikvServer
+	server.RegisterName("Service", s)
+	rpcAddr, _ := strconv.ParseInt(conf.Server.StoreAddr[strings.IndexByte(conf.Server.StoreAddr, ':')+1:], 10, 64)
+	Address := fmt.Sprintf(":%d", rpcAddr+200)
+	//go server.Listen("tcp",Address, "pb")
+	sock, err := socket.NewSocket("tcp", nil)
+	if err != nil {
+		panic(err)
+	}
+	sl, err := sock.Listen(Address)
+	if err != nil {
+		panic(err)
+	}
+	go tikvServer.ServeSocketRaft(sl)
+	//go tikvServer.ServeRawRaft(raftL)
+	//go grpcServer.Serve(grpcl)
+	handleSignal(grpcServer)
+	err = grpcServer.Serve(l)
+	if err != nil {
+		log.S().Fatal(err)
+	}
+	//handleSignal(matcher)
+	//err = matcher.Serve()
 	tikvServer.Stop()
 	log.Info("Server stopped.", zap.Error(err))
+}
+
+type Service interface {
+	RaftRPC(msg *raft_serverpb.RaftMessage, empty *pb.Empty) error
 }
 
 func loadConfig() *config.Config {
@@ -204,7 +233,7 @@ func loadConfig() *config.Config {
 	return &conf
 }
 
-func handleSignal(cmux cmux.CMux) {
+func handleSignal(grpcServer *grpc.Server) {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh,
 		syscall.SIGHUP,
@@ -214,6 +243,6 @@ func handleSignal(cmux cmux.CMux) {
 	go func() {
 		sig := <-sigCh
 		log.S().Infof("Got signal [%s] to exit.", sig)
-		cmux.Close()
+		grpcServer.Stop()
 	}()
 }

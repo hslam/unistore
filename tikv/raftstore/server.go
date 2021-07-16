@@ -17,8 +17,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
+	"github.com/hslam/socket"
 	"github.com/ngaut/unistore/config"
 	"github.com/ngaut/unistore/pd"
+	"github.com/ngaut/unistore/tikv/raftstore/pb"
 	"github.com/pingcap/badger/y"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	"github.com/pingcap/kvproto/pkg/raft_serverpb"
@@ -65,6 +67,10 @@ func (ris *InnerServer) BatchRaft(stream tikvpb.Tikv_BatchRaftServer) error {
 	}
 }
 
+func (ris *InnerServer) RaftRPC(msg *raft_serverpb.RaftMessage, empty *pb.Empty) error {
+	return ris.router.sendRaftMessage(msg)
+}
+
 func (ris *InnerServer) HandleRawRaft(conn net.Conn) {
 	reader := bufio.NewReaderSize(conn, 1*1024*1024)
 	var rawBuf []byte
@@ -99,6 +105,30 @@ func (ris *InnerServer) HandleRawRaft(conn net.Conn) {
 		y.Assert(err == nil)
 		_ = ris.router.sendRaftMessage(msg)
 	}
+}
+
+func (ris *InnerServer) HandleSocketRaft(messages socket.Messages) {
+	for {
+		buf, err := messages.ReadMessage(nil)
+		if err != nil {
+			return
+		}
+		msg := &raft_serverpb.RaftMessage{}
+		err = msg.Unmarshal(buf)
+		y.Assert(err == nil)
+		_ = ris.router.sendRaftMessage(msg)
+	}
+}
+
+func (ris *InnerServer) HandleSocketRaftOnce(messages socket.Messages) {
+	buf, err := messages.ReadMessage(nil)
+	if err != nil {
+		return
+	}
+	msg := &raft_serverpb.RaftMessage{}
+	err = msg.Unmarshal(buf)
+	y.Assert(err == nil)
+	_ = ris.router.sendRaftMessage(msg)
 }
 
 func NewRaftInnerServer(globalConfig *config.Config, engines *Engines, raftConfig *Config) *InnerServer {
