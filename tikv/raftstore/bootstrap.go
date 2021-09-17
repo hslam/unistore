@@ -20,6 +20,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/metapb"
 	rspb "github.com/pingcap/kvproto/pkg/raft_serverpb"
+	"github.com/pingcap/log"
 )
 
 const (
@@ -71,6 +72,7 @@ func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	ingestTree := initialIngestTree(region.Id, region.RegionEpoch.Version)
 	csBin, _ := ingestTree.ChangeSet.Marshal()
 	raftWB.SetState(region.Id, KVEngineMetaKey(), csBin)
+	log.S().Infof("shard %d:%d save shard meta %v from writePrepareBootstrap. meta bin %x", ingestTree.ChangeSet.ShardID, ingestTree.ChangeSet.ShardVer, ingestTree.ChangeSet, csBin)
 	err := engines.raft.Write(raftWB)
 	if err != nil {
 		return err
@@ -128,6 +130,7 @@ func ClearPrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	wb.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), nil)
 	wb.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), nil)
 	wb.SetState(region.Id, KVEngineMetaKey(), nil)
+	log.S().Infof("shard %d:%d remove shard meta bin from writePrepareBootstrap.", region.Id, region.RegionEpoch.Version)
 	err := engines.raft.Write(wb)
 	if err != nil {
 		return errors.WithStack(err)

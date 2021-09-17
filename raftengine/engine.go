@@ -18,6 +18,7 @@ import (
 	"github.com/google/btree"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
+	"github.com/pingcap/log"
 	"os"
 	"path/filepath"
 )
@@ -53,6 +54,9 @@ func (b *WriteBatch) TruncateRaftLog(regionID, index uint64) {
 }
 
 func (b *WriteBatch) SetState(regionID uint64, key, val []byte) {
+	if string(key) == string([]byte{0x05}) {
+		log.S().Infof("shard %d set shard meta bin %x", regionID, val)
+	}
 	b.stateOps = append(b.stateOps, stateOp{regionID: regionID, key: key, val: val})
 	b.size += stateSize(key, val)
 }

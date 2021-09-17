@@ -382,7 +382,13 @@ func (ps *PeerStorage) GetEngineMeta() *engine.ShardMeta {
 	if ps.shardMeta == nil {
 		metaBin := ps.Engines.raft.GetState(ps.region.Id, KVEngineMetaKey())
 		cs := new(enginepb.ChangeSet)
+		if len(metaBin) == 0 {
+			log.S().Panicf("shard %d:%d meta bin is empty", ps.region.Id, ps.region.RegionEpoch.Version)
+		}
 		y.Assert(cs.Unmarshal(metaBin) == nil)
+		if cs.Snapshot == nil {
+			log.S().Panicf("shard %d:%d snapshot is nil", ps.region.Id, ps.region.RegionEpoch.Version)
+		}
 		ps.shardMeta = engine.NewShardMeta(cs)
 	}
 	return ps.shardMeta
@@ -517,8 +523,11 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 			break
 		}
 	}
-	ps.shardMeta = engine.NewShardMeta(snapData.changeSet)
-	raftWB.SetState(ps.region.Id, KVEngineMetaKey(), ps.shardMeta.Marshal())
+	shardMeta := engine.NewShardMeta(snapData.changeSet)
+	ps.shardMeta = shardMeta
+	metaBin := ps.shardMeta.Marshal()
+	raftWB.SetState(ps.region.Id, KVEngineMetaKey(), metaBin)
+	log.S().Infof("shard %d:%d save shard meta %v from ApplySnapshot. meta bin %x", shardMeta.ID, shardMeta.Ver, shardMeta, metaBin)
 
 	ctx.Region = snapData.region
 
