@@ -336,7 +336,7 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 
 func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 	if res.destroyPeerID != 0 {
-		y.Assert(res.destroyPeerID == d.peerID())
+		y.AssertTruef(res.destroyPeerID == d.peerID(), "region %d:%d peer %d, destroy wrong peer %d", d.regionID(), d.region().RegionEpoch.Version, d.peerID(), res.destroyPeerID)
 		log.S().Infof("region %d:%d destroy peer %d", d.regionID(), d.region().RegionEpoch.Version, res.destroyPeerID)
 		d.destroyPeer(false)
 	} else {
