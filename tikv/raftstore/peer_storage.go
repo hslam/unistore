@@ -409,6 +409,7 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []*eraftpb.Entry
 }
 
 func (ps *PeerStorage) clearMeta(raftWB *raftengine.WriteBatch) {
+	log.S().Infof("region %d:%d clear meta from peer storage", ps.region.Id, ps.region.RegionEpoch.Version)
 	ClearMeta(ps.Engines.raft, raftWB, ps.region)
 }
 
