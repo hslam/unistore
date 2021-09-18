@@ -458,12 +458,13 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 				return false, nil
 			}
 			meta.pendingVotes = append(meta.pendingVotes, msg)
-			log.S().Infof("region %d doesn't exist yet, wait for it to be split.", regionID)
+			log.S().Infof("region %d:%d doesn't exist yet, wait for it to be split.", regionID, fromEpoch.Version)
 			return true, nil
 		}
+		log.S().Errorf("region %d:%d not exists but not tombstone: %s", regionID, fromEpoch.Version, localState)
 		return false, errors.Errorf("region %d not exists but not tombstone: %s", regionID, localState)
 	}
-	log.S().Debugf("region %d in tombstone state: %s", regionID, localState)
+	log.S().Infof("region %d:%d in tombstone state: %s", regionID, fromEpoch.Version, localState)
 	region := localState.Region
 	regionEpoch := region.RegionEpoch
 	if localState.MergeState != nil {
@@ -472,13 +473,14 @@ func (d *storeMsgHandler) checkMsg(msg *rspb.RaftMessage) (bool, error) {
 	}
 	// The region in this peer is already destroyed
 	if IsEpochStale(fromEpoch, regionEpoch) {
-		log.S().Infof("tombstone peer receives a stale message. region_id:%d, from_region_epoch:%s, current_region_epoch:%s, msg_type:%s",
-			regionID, fromEpoch, regionEpoch, msgType)
+		log.S().Infof("region %d:%d tombstone peer receives a stale message. region_id:%d, from_region_epoch:%s, current_region_epoch:%s, msg_type:%s",
+			regionID, fromEpoch.Version, regionID, fromEpoch, regionEpoch, msgType)
 		notExist := findPeer(region, fromStoreID) == nil
 		handleStaleMsg(d.ctx.trans, msg, regionEpoch, isVoteMsg && notExist, nil)
 		return true, nil
 	}
 	if fromEpoch.ConfVer == regionEpoch.ConfVer {
+		log.S().Errorf("region %d:%d tombstone peer [epoch: %s] received an invalid message %s, ignore it", regionID, fromEpoch.Version, regionEpoch, msgType)
 		return false, errors.Errorf("tombstone peer [epoch: %s] received an invalid message %s, ignore it",
 			regionEpoch, msgType)
 	}
