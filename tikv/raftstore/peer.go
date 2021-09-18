@@ -884,7 +884,7 @@ func (p *Peer) handleChangeSet(ctx *RaftContext, e *eraftpb.Entry) {
 	log.S().Infof("shard meta %d:%d handle change set engine meta, apply change %s", shardMeta.ID, shardMeta.Ver, change)
 	metaBin := shardMeta.Marshal()
 	ctx.raftWB.SetState(p.regionId, KVEngineMetaKey(), metaBin)
-	log.S().Infof("shard %d:%d save shard meta %v from handleChangeSet. meta bin %d", shardMeta.ID, shardMeta.Ver, shardMeta, len(metaBin))
+	log.S().Infof("shard %d:%d save shard meta from handleChangeSet. meta bin %d, seq %d", shardMeta.ID, shardMeta.Ver, len(metaBin), shardMeta.Seq)
 }
 
 func (p *Peer) handlePendingSplit(ctx *RaftContext, e *eraftpb.Entry, splits *raft_cmdpb.BatchSplitRequest) {
@@ -901,7 +901,7 @@ func (p *Peer) handlePendingSplit(ctx *RaftContext, e *eraftpb.Entry, splits *ra
 		log.S().Infof("%d:%d split add snapshot files %v", newMeta.ID, newMeta.Ver, newMeta.AllFiles())
 		metaBin := newMeta.Marshal()
 		ctx.raftWB.SetState(newMeta.ID, KVEngineMetaKey(), metaBin)
-		log.S().Infof("shard %d:%d save shard meta %v from handlePendingSplit. meta bin %d", newMeta.ID, newMeta.Ver, newMeta, len(metaBin))
+		log.S().Infof("shard %d:%d save shard meta from handlePendingSplit. meta bin %d, seq %d", newMeta.ID, newMeta.Ver, len(metaBin), newMeta.Seq)
 		if newMeta.ID == p.regionId {
 			ps.shardMeta = newMeta
 		}

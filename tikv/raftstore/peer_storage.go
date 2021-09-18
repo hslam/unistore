@@ -528,7 +528,7 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 	ps.shardMeta = shardMeta
 	metaBin := ps.shardMeta.Marshal()
 	raftWB.SetState(ps.region.Id, KVEngineMetaKey(), metaBin)
-	log.S().Infof("shard %d:%d save shard meta %v from ApplySnapshot. meta bin %d", shardMeta.ID, shardMeta.Ver, shardMeta, len(metaBin))
+	log.S().Infof("shard %d:%d save shard meta from ApplySnapshot. meta bin %d, seq %d", shardMeta.ID, shardMeta.Ver, len(metaBin), shardMeta.Seq)
 
 	ctx.Region = snapData.region
 
