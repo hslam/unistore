@@ -72,7 +72,7 @@ func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	ingestTree := initialIngestTree(region.Id, region.RegionEpoch.Version)
 	csBin, _ := ingestTree.ChangeSet.Marshal()
 	raftWB.SetState(region.Id, KVEngineMetaKey(), csBin)
-	log.S().Infof("shard %d:%d save shard meta %v from writePrepareBootstrap. meta bin %x", ingestTree.ChangeSet.ShardID, ingestTree.ChangeSet.ShardVer, ingestTree.ChangeSet, csBin)
+	log.S().Infof("shard %d:%d save shard meta %v from writePrepareBootstrap. meta bin %d", ingestTree.ChangeSet.ShardID, ingestTree.ChangeSet.ShardVer, ingestTree.ChangeSet, len(csBin))
 	err := engines.raft.Write(raftWB)
 	if err != nil {
 		return err

@@ -57,18 +57,18 @@ func (b *WriteBatch) SetState(regionID uint64, key, val []byte) {
 	if len(key) > 0 && len(val) == 0 {
 		switch key[0] {
 		case 1:
-			log.S().Infof("region %d clear raft state", regionID)
+			log.S().Infof("region %d: clear raft state", regionID)
 		case 2:
-			log.S().Infof("region %d clear region meta", regionID)
+			log.S().Infof("region %d: clear region meta", regionID)
 		case 3:
-			log.S().Infof("region %d clear store ident", regionID)
+			log.S().Infof("region %d: clear store ident", regionID)
 		case 4:
-			log.S().Infof("region %d clear prepare bootstrap", regionID)
+			log.S().Infof("region %d: clear prepare bootstrap", regionID)
 		case 5:
-			log.S().Infof("region %d clear kv engine meta", regionID)
+			log.S().Infof("region %d: clear kv engine meta", regionID)
 		}
 	} else if string(key) == string([]byte{0x05}) {
-		log.S().Infof("region %d set shard meta bin %d", regionID, len(val))
+		log.S().Infof("region %d: set shard meta bin %d", regionID, len(val))
 	}
 	b.stateOps = append(b.stateOps, stateOp{regionID: regionID, key: key, val: val})
 	b.size += stateSize(key, val)
