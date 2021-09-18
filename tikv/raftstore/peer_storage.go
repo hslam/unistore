@@ -459,6 +459,7 @@ func fetchEntriesTo(engine *raftengine.Engine, regionID, low, high, maxSize uint
 
 func ClearMeta(raft *raftengine.Engine, raftWB *raftengine.WriteBatch, region *metapb.Region) {
 	regionID := region.Id
+	log.S().Infof("region %d:%d clear states and log from raft engine", regionID, region.RegionEpoch.Version)
 	err := raft.IterateRegionStates(regionID, false, func(key, val []byte) error {
 		raftWB.SetState(regionID, y.Copy(key), nil)
 		return nil

@@ -337,6 +337,7 @@ func (d *peerMsgHandler) onRaftBaseTick() {
 func (d *peerMsgHandler) onApplyResult(res *applyTaskRes) {
 	if res.destroyPeerID != 0 {
 		y.Assert(res.destroyPeerID == d.peerID())
+		log.S().Infof("region %d:%d destroy peer %d", d.regionID(), d.region().RegionEpoch.Version, res.destroyPeerID)
 		d.destroyPeer(false)
 	} else {
 		var readyToMerge *uint32
@@ -613,12 +614,13 @@ func (d *peerMsgHandler) handleDestroyPeer(job *DestroyPeerJob) bool {
 		log.S().Infof("[region %d] %d is destroyed asynchronously", job.RegionId, job.Peer.Id)
 		return false
 	}
+	log.S().Infof("region %d:%d destroy peer %d", d.regionID(), d.region().RegionEpoch.Version, job.Peer.Id)
 	d.destroyPeer(false)
 	return true
 }
 
 func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
-	log.S().Infof("%s starts destroy [merged_by_target: %v]", d.tag(), mergeByTarget)
+	log.S().Infof("region %d:%d starts destroy [merged_by_target: %v]", d.regionID(), d.region().RegionEpoch.Version, mergeByTarget)
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
 	y.Assert(!d.peer.IsApplyingSnapshot())
@@ -717,6 +719,8 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 		delete(d.peer.followersSplitFilesDone, peerID)
 		d.peer.removePeerCache(peerID)
 		WritePeerState(d.ctx.raftWB, cp.region, rspb.PeerState_Tombstone, nil)
+		log.S().Infof("region %d:%d remove node [store %d peer %d] from node [store %d peer %d]",
+			d.regionID(), d.region().RegionEpoch.Version, cp.peer.StoreId, cp.peer.Id, d.storeID(), d.peerID())
 	}
 
 	// In pattern matching above, if the peer is the leader,
@@ -726,7 +730,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	// adding the redundant peer.
 	if d.peer.IsLeader() {
 		// Notify pd immediately.
-		log.S().Infof("%s notify pd with change peer region %s", d.tag(), d.region())
+		log.S().Infof("region %d:%d notify pd with change peer region %s", d.regionID(), d.region().RegionEpoch.Version, d.region())
 		d.peer.HeartbeatPd(d.ctx.pdTaskSender)
 	}
 	myPeerID := d.peerID()
@@ -734,6 +738,7 @@ func (d *peerMsgHandler) onReadyChangePeer(cp changePeer) {
 	// We only care remove itself now.
 	if changeType == eraftpb.ConfChangeType_RemoveNode && cp.peer.StoreId == d.storeID() {
 		if myPeerID == peerID {
+			log.S().Infof("region %d:%d destroy peer %d", d.regionID(), d.region().RegionEpoch.Version, peerID)
 			d.destroyPeer(false)
 		} else {
 			panic(fmt.Sprintf("%s trying to remove unknown peer %s", d.tag(), cp.peer))

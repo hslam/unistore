@@ -440,7 +440,7 @@ func (p *Peer) MaybeDestroy() *DestroyPeerJob {
 func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	start := time.Now()
 	region := p.Region()
-	log.S().Infof("%v begin to destroy", p.Tag)
+	log.S().Infof("region %d:%d begin to destroy", region.Id, region.RegionEpoch.Version)
 
 	// Set Tombstone state explicitly
 	raftWB := raftengine.NewWriteBatch()
@@ -458,7 +458,7 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 		// If we meet panic when deleting data and raft log, the dirty data
 		// will be cleared by a newer snapshot applying or restart.
 		if err := p.Store().ClearData(); err != nil {
-			log.S().Errorf("%v failed to schedule clear data task %v", p.Tag, err)
+			log.S().Errorf("region %d:%d failed to schedule clear data task %v", region.Id, region.RegionEpoch.Version, err)
 		}
 	}
 
@@ -475,7 +475,7 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	}
 	p.applyProposals = nil
 
-	log.S().Infof("%v destroy itself, takes %v", p.Tag, time.Now().Sub(start))
+	log.S().Infof("region %d:%d destroy itself, takes %v", region.Id, region.RegionEpoch.Version, time.Now().Sub(start))
 	return nil
 }
 
