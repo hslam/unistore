@@ -41,4 +41,6 @@ require (
 
 replace github.com/pingcap/kvproto => github.com/coocood/kvproto v0.0.0-20210712100210-4afaae04ba8e
 
+replace github.com/pingcap/badger => github.com/hslam/badger v1.5.1-0.20210918071320-eec332aa2c5f
+
 go 1.13
