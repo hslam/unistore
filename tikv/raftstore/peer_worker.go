@@ -212,6 +212,13 @@ func (rw *raftWorker) getPeerInbox(regionID uint64) *peerInbox {
 		peerState := rw.pr.get(regionID)
 		inbox = &peerInbox{peer: peerState.peer}
 		rw.inboxes[regionID] = inbox
+	} else {
+		peerState := rw.pr.get(regionID)
+		if peerState == nil {
+			log.S().Errorf("region %d: peer %d stopped %t should have been destroyed", regionID, inbox.peer.peerID(), inbox.peer.stopped)
+		} else if inbox.peer.peerID() != peerState.peer.peerID() {
+			log.S().Errorf("region %d: peer is not match. request %d, current %d, stopped %t", regionID, peerState.peer.peerID(), inbox.peer.peerID(), inbox.peer.stopped)
+		}
 	}
 	return inbox
 }
