@@ -622,7 +622,7 @@ func (d *peerMsgHandler) destroyPeer(mergeByTarget bool) {
 	log.S().Infof("%s starts destroy [merged_by_target: %v]", d.tag(), mergeByTarget)
 	regionID := d.regionID()
 	// We can't destroy a peer which is applying snapshot.
-	y.Assert(!d.peer.IsApplyingSnapshot())
+	y.AssertTruef(!d.peer.IsApplyingSnapshot(), "region %d:%d peer %d destroy a peer which is applying snapshot.", d.regionID(), d.region().RegionEpoch.Version, d.peerID())
 	d.ctx.storeMetaLock.Lock()
 	defer func() {
 		d.ctx.storeMetaLock.Unlock()

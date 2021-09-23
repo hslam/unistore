@@ -172,15 +172,15 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 		if msg.Type == MsgTypeRaftMessage {
 			raftMsgCount++
 		}
-		rw.getPeerInbox(msg.RegionID).append(msg)
+		rw.appendMsg(msg.RegionID, msg)
 	case msg := <-rw.applyResCh:
 		respCount++
-		rw.getPeerInbox(msg.RegionID).append(msg)
+		rw.appendMsg(msg.RegionID, msg)
 	case <-rw.ticker.C:
 		rw.pr.peers.Range(func(key, value interface{}) bool {
 			reqCount++
 			regionID := key.(uint64)
-			rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
+			rw.appendMsg(regionID, NewPeerMsg(MsgTypeTick, regionID, nil))
 			return true
 		})
 	}
@@ -191,13 +191,13 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 		if msg.Type == MsgTypeRaftMessage {
 			raftMsgCount++
 		}
-		rw.getPeerInbox(msg.RegionID).append(msg)
+		rw.appendMsg(msg.RegionID, msg)
 	}
 	resLen := len(rw.applyResCh)
 	respCount += resLen
 	for i := 0; i < resLen; i++ {
 		msg := <-rw.applyResCh
-		rw.getPeerInbox(msg.RegionID).append(msg)
+		rw.appendMsg(msg.RegionID, msg)
 	}
 	metrics.RaftBatchSize.Observe(float64(len(rw.inboxes)))
 	metrics.ServerGrpcReqBatchSize.Observe(float64(reqCount))
@@ -206,21 +206,20 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 	return false
 }
 
-func (rw *raftWorker) getPeerInbox(regionID uint64) *peerInbox {
+func (rw *raftWorker) appendMsg(regionID uint64, msg Msg) {
 	inbox, ok := rw.inboxes[regionID]
-	if !ok {
+	if !ok || inbox.peer.stopped {
 		peerState := rw.pr.get(regionID)
-		inbox = &peerInbox{peer: peerState.peer}
-		rw.inboxes[regionID] = inbox
-	} else {
-		peerState := rw.pr.get(regionID)
-		if peerState == nil {
-			log.S().Errorf("region %d: peer %d stopped %t should have been destroyed", regionID, inbox.peer.peerID(), inbox.peer.stopped)
-		} else if inbox.peer.peerID() != peerState.peer.peerID() {
-			log.S().Errorf("region %d: peer is not match. request %d, current %d, stopped %t", regionID, peerState.peer.peerID(), inbox.peer.peerID(), inbox.peer.stopped)
+		if peerState != nil {
+			inbox = &peerInbox{peer: peerState.peer}
+			rw.inboxes[regionID] = inbox
+		} else if ok {
+			log.S().Warnf("region %d peer %d stopped %t should have been destroyed. msg type %d, msg %v", regionID, inbox.peer.peerID(), inbox.peer.stopped, msg.Type, msg)
+		} else {
+			log.S().Panicf("region %d peer inbox is nil. msg type %d, msg %v", regionID, msg.Type, msg)
 		}
 	}
-	return inbox
+	inbox.append(msg)
 }
 
 func (rw *raftWorker) handleMsgs() {
