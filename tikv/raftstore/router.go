@@ -33,14 +33,18 @@ import (
 // router routes a message to a peer.
 type router struct {
 	peers       sync.Map
-	peerSender  chan Msg
+	peerSenders []chan Msg
 	storeSender chan<- Msg
 	storeFsm    *storeFsm
 }
 
-func newRouter(storeSender chan<- Msg, storeFsm *storeFsm) *router {
+func newRouter(storeSender chan<- Msg, storeFsm *storeFsm, raftWorkerCnt int) *router {
+	peerSenders := make([]chan Msg, raftWorkerCnt)
+	for i := 0; i < raftWorkerCnt; i++ {
+		peerSenders[i] = make(chan Msg, 4096)
+	}
 	pm := &router{
-		peerSender:  make(chan Msg, 4096),
+		peerSenders: peerSenders,
 		storeSender: storeSender,
 		storeFsm:    storeFsm,
 	}
@@ -81,7 +85,8 @@ func (pr *router) send(regionID uint64, msg Msg) error {
 	if p == nil || atomic.LoadUint32(&p.closed) == 1 {
 		return errors.WithStack(errPeerNotFound)
 	}
-	pr.peerSender <- msg
+	idx := hashRegionID(regionID) % uint64(len(pr.peerSenders))
+	pr.peerSenders[idx] <- msg
 	return nil
 }
 
