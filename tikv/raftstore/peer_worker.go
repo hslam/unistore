@@ -39,11 +39,14 @@ type peerInbox struct {
 	msgs []Msg
 }
 
+func (pi *peerInbox) clone() *peerInbox {
+	c := &peerInbox{}
+	*c = *pi
+	return c
+}
+
 func (pi *peerInbox) reset() {
-	for i := range pi.msgs {
-		pi.msgs[i] = Msg{}
-	}
-	pi.msgs = pi.msgs[:0]
+	pi.msgs = nil
 }
 
 func (pi *peerInbox) append(msg Msg) {
@@ -80,16 +83,12 @@ func hashRegionID(regionID uint64) uint64 {
 
 // raftWorker is responsible for run raft commands and apply raft logs.
 type raftWorker struct {
-	pr *router
+	inboxes     map[uint64]*peerInbox
+	ticker      *time.Ticker
+	peerInboxCh chan *peerInbox
+	raftCtx     *RaftContext
 
-	inboxes map[uint64]*peerInbox
-	ticker  *time.Ticker
-	raftCh  chan Msg
-	raftCtx *RaftContext
-
-	applyChs   []chan *peerApplyBatch
-	applyCtxes []*applyContext
-	applyResCh chan Msg
+	applyChs []chan *peerApplyBatch
 
 	movePeerCandidate uint64
 	closeCh           <-chan struct{}
@@ -100,28 +99,18 @@ type raftWorker struct {
 	handleReadyDc *durationCollector
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyWorkerCnt int) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, ch chan *peerInbox, applyChs []chan *peerApplyBatch) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
 		raftWB:        raftengine.NewWriteBatch(),
 		localStats:    new(storeStats),
 	}
-	applyResCh := make(chan Msg, cap(ch))
-	applyChs := make([]chan *peerApplyBatch, applyWorkerCnt)
-	applyCtxes := make([]*applyContext, applyWorkerCnt)
-	for i := 0; i < applyWorkerCnt; i++ {
-		applyChs[i] = make(chan *peerApplyBatch, 256)
-		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResCh, ctx.cfg)
-	}
 	return &raftWorker{
-		raftCh:        ch,
-		applyResCh:    applyResCh,
+		peerInboxCh:   ch,
 		inboxes:       map[uint64]*peerInbox{},
 		raftCtx:       raftCtx,
-		pr:            pm,
 		applyChs:      applyChs,
-		applyCtxes:    applyCtxes,
 		handleMsgDc:   newDurationCollector("raft_handle_msg"),
 		readyAppendDc: newDurationCollector("raft_ready_append"),
 		writeDc:       newDurationCollector("raft_write"),
@@ -165,64 +154,37 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 			inbox.reset()
 		}
 	}
-	var reqCount int
-	var respCount int
-	var raftMsgCount int
 	select {
 	case <-closeCh:
 		for _, applyCh := range rw.applyChs {
 			applyCh <- nil
 		}
 		return true
-	case msg := <-rw.raftCh:
-		reqCount++
-		if msg.Type == MsgTypeRaftMessage {
-			raftMsgCount++
+	case pi := <-rw.peerInboxCh:
+		regionID := pi.peer.peer.regionID()
+		inbox, ok := rw.inboxes[regionID]
+		if !ok {
+			rw.inboxes[regionID] = pi
+		} else {
+			inbox.msgs = append(inbox.msgs, pi.msgs...)
 		}
-		rw.getPeerInbox(msg.RegionID).append(msg)
-	case msg := <-rw.applyResCh:
-		respCount++
-		rw.getPeerInbox(msg.RegionID).append(msg)
-	case <-rw.ticker.C:
-		rw.pr.peers.Range(func(key, value interface{}) bool {
-			regionID := key.(uint64)
-			rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
-			return true
-		})
 	}
 	receivingTime := time.Now()
 	metrics.WaitMessageDurationHistogram.Observe(receivingTime.Sub(begin).Seconds())
-	pending := len(rw.raftCh)
-	reqCount += pending
+	pending := len(rw.peerInboxCh)
 	for i := 0; i < pending; i++ {
-		msg := <-rw.raftCh
-		if msg.Type == MsgTypeRaftMessage {
-			raftMsgCount++
+		pi := <-rw.peerInboxCh
+		regionID := pi.peer.peer.regionID()
+		inbox, ok := rw.inboxes[regionID]
+		if !ok {
+			rw.inboxes[regionID] = pi
+		} else {
+			inbox.msgs = append(inbox.msgs, pi.msgs...)
 		}
-		rw.getPeerInbox(msg.RegionID).append(msg)
-	}
-	resLen := len(rw.applyResCh)
-	respCount += resLen
-	for i := 0; i < resLen; i++ {
-		msg := <-rw.applyResCh
-		rw.getPeerInbox(msg.RegionID).append(msg)
 	}
 	metrics.RaftBatchSize.Observe(float64(len(rw.inboxes)))
-	metrics.ServerGrpcReqBatchSize.Observe(float64(reqCount))
-	metrics.ServerGrpcRespBatchSize.Observe(float64(respCount))
-	metrics.ServerRaftMessageBatchSize.Observe(float64(raftMsgCount))
 	metrics.ReceiveMessageDurationHistogram.Observe(time.Since(receivingTime).Seconds())
 	return false
-}
-
-func (rw *raftWorker) getPeerInbox(regionID uint64) *peerInbox {
-	inbox, ok := rw.inboxes[regionID]
-	if !ok {
-		peerState := rw.pr.get(regionID)
-		inbox = &peerInbox{peer: peerState}
-		rw.inboxes[regionID] = inbox
-	}
-	return inbox
 }
 
 func (rw *raftWorker) processInBox(inbox *peerInbox) *ReadyICPair {
@@ -273,6 +235,112 @@ func (rw *raftWorker) persistState() {
 		metrics.PeerAppendLogHistogram.Observe(duration.Seconds())
 		metrics.PersistStateDurationHistogram.Observe(duration.Seconds())
 	}
+}
+
+type raftMsgWorker struct {
+	pr         *router
+	ctx        *GlobalContext
+	raftCh     chan Msg
+	applyResCh chan Msg
+	raftChs    []chan *peerInbox
+	applyChs   []chan *peerApplyBatch
+	applyCtxes []*applyContext
+	inboxes    map[uint64]*peerInbox
+	ticker     *time.Ticker
+	closeCh    <-chan struct{}
+}
+
+func newRaftMsgWorker(ctx *GlobalContext, ch chan Msg, pm *router) *raftMsgWorker {
+	applyResCh := make(chan Msg, cap(ch))
+	applyChs := make([]chan *peerApplyBatch, ctx.cfg.ApplyWorkerCnt)
+	applyCtxes := make([]*applyContext, ctx.cfg.ApplyWorkerCnt)
+	for i := 0; i < ctx.cfg.ApplyWorkerCnt; i++ {
+		applyChs[i] = make(chan *peerApplyBatch, 256)
+		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResCh, ctx.cfg)
+	}
+	raftChs := make([]chan *peerInbox, ctx.cfg.RaftWorkerCnt)
+	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
+		raftChs[i] = make(chan *peerInbox, 4096)
+	}
+	return &raftMsgWorker{
+		ctx:        ctx,
+		raftCh:     ch,
+		applyResCh: applyResCh,
+		raftChs:    raftChs,
+		applyChs:   applyChs,
+		applyCtxes: applyCtxes,
+		inboxes:    map[uint64]*peerInbox{},
+		pr:         pm,
+	}
+}
+
+func (rw *raftMsgWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+	rw.ticker = time.NewTicker(rw.ctx.cfg.RaftBaseTickInterval)
+	for {
+		if quit := rw.receiveMsgs(closeCh); quit {
+			return
+		}
+		for regionID, inbox := range rw.inboxes {
+			if len(inbox.msgs) > 0 {
+				idx := hashRegionID(regionID) % uint64(len(rw.raftChs))
+				rw.raftChs[idx] <- inbox.clone()
+				inbox.reset()
+			} else {
+				delete(rw.inboxes, regionID)
+			}
+		}
+	}
+}
+
+func (rw *raftMsgWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
+	begin := time.Now()
+	for regionID, inbox := range rw.inboxes {
+		if len(inbox.msgs) == 0 {
+			delete(rw.inboxes, regionID)
+		}
+	}
+	select {
+	case <-closeCh:
+		for _, applyCh := range rw.applyChs {
+			applyCh <- nil
+		}
+		return true
+	case msg := <-rw.raftCh:
+		rw.getPeerInbox(msg.RegionID).append(msg)
+	case msg := <-rw.applyResCh:
+		rw.getPeerInbox(msg.RegionID).append(msg)
+	case <-rw.ticker.C:
+		rw.pr.peers.Range(func(key, value interface{}) bool {
+			regionID := key.(uint64)
+			rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
+			return true
+		})
+	}
+	receivingTime := time.Now()
+	metrics.WaitMessageDurationHistogram.Observe(receivingTime.Sub(begin).Seconds())
+	pending := len(rw.raftCh)
+	for i := 0; i < pending; i++ {
+		msg := <-rw.raftCh
+		rw.getPeerInbox(msg.RegionID).append(msg)
+	}
+	resLen := len(rw.applyResCh)
+	for i := 0; i < resLen; i++ {
+		msg := <-rw.applyResCh
+		rw.getPeerInbox(msg.RegionID).append(msg)
+	}
+	metrics.ReceiveMessageDurationHistogram.Observe(time.Since(receivingTime).Seconds())
+	return false
+}
+
+func (rw *raftMsgWorker) getPeerInbox(regionID uint64) *peerInbox {
+	inbox, ok := rw.inboxes[regionID]
+	if !ok {
+		peerState := rw.pr.get(regionID)
+		inbox = &peerInbox{peer: peerState}
+		rw.inboxes[regionID] = inbox
+	}
+	return inbox
 }
 
 type applyWorker struct {
