@@ -371,16 +371,23 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 
 	bs.wg.Add(ctx.cfg.RaftWorkerCnt + ctx.cfg.ApplyWorkerCnt + 1) // raftWorker, applyWorker, storeWorker
 
+	applyResChs := make([]chan Msg, ctx.cfg.RaftWorkerCnt)
+	applyResSenders := make([]chan<- Msg, ctx.cfg.RaftWorkerCnt)
+	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
+		ch := make(chan Msg, cap(router.peerSenders[i]))
+		applyResChs[i] = ch
+		applyResSenders[i] = ch
+	}
+
 	applyChs := make([]chan *peerApplyBatch, ctx.cfg.ApplyWorkerCnt)
 	applyCtxes := make([]*applyContext, ctx.cfg.ApplyWorkerCnt)
-	applyResCh := make(chan Msg, cap(router.peerSenders[0]))
 	for i := 0; i < ctx.cfg.ApplyWorkerCnt; i++ {
 		applyChs[i] = make(chan *peerApplyBatch, 256)
-		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResCh, ctx.cfg)
+		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResSenders, ctx.cfg)
 	}
 	log.S().Infof("raft worker cnt %d", ctx.cfg.RaftWorkerCnt)
 	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
-		rw := newRaftWorker(ctx, router.peerSenders[i], router, applyChs, applyResCh, i, ctx.cfg.RaftWorkerCnt)
+		rw := newRaftWorker(ctx, router.peerSenders[i], router, applyChs, applyResChs[i], i, ctx.cfg.RaftWorkerCnt)
 		go rw.run(bs.closeCh, bs.wg)
 	}
 	log.S().Infof("apply worker cnt %d", ctx.cfg.ApplyWorkerCnt)

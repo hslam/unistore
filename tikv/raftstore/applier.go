@@ -36,6 +36,7 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/uber-go/atomic"
+	"github.com/go-playground/locales/rw"
 )
 
 type pendingCmd struct {
@@ -229,7 +230,7 @@ type applyContext struct {
 	tag              string
 	timer            *time.Time
 	regionScheduler  chan<- task
-	applyResCh       chan<- Msg
+	applyResChs       []chan<- Msg
 	engines          *Engines
 	applyBatch       *applyBatch
 	applyTaskResList []*applyTaskRes
@@ -242,12 +243,12 @@ type applyContext struct {
 }
 
 func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
-	applyResCh chan<- Msg, cfg *Config) *applyContext {
+	applyResChs []chan<- Msg, cfg *Config) *applyContext {
 	return &applyContext{
 		tag:             tag,
 		regionScheduler: regionScheduler,
 		engines:         engines,
-		applyResCh:      applyResCh,
+		applyResChs:      applyResChs,
 		useDeleteRange:  cfg.UseDeleteRange,
 		wb:              NewKVWriteBatch(engines.kv),
 	}
@@ -263,7 +264,8 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 		execResults: results,
 		metrics:     d.metrics,
 	}
-	ac.applyResCh <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
+	idx := hashRegionID( d.region.Id)%uint64(len(ac.applyResChs))
+	ac.applyResChs[idx] <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
 }
 
 /// Calls the callback of `cmd` when the Region is removed.
