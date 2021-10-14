@@ -369,7 +369,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	workers := bs.workers
 	router := bs.router
 
-	bs.wg.Add(1 + ctx.cfg.ApplyWorkerCnt + 1) // raftWorker, applyWorker, storeWorker
+	bs.wg.Add(ctx.cfg.RaftWorkerCnt + ctx.cfg.ApplyWorkerCnt + 1) // raftWorker, applyWorker, storeWorker
 
 	applyChs := make([]chan *peerApplyBatch, ctx.cfg.ApplyWorkerCnt)
 	applyCtxes := make([]*applyContext, ctx.cfg.ApplyWorkerCnt)
