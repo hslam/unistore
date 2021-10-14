@@ -17,12 +17,12 @@ import (
 )
 
 type RecoverHandler struct {
-	raftEngine    *raftengine.Engine
+	raftEngine    *raftengine.MergeEngine
 	storeID       uint64
 	regionHandler *regionTaskHandler
 }
 
-func NewRecoverHandler(raftEngine *raftengine.Engine) (*RecoverHandler, error) {
+func NewRecoverHandler(raftEngine *raftengine.MergeEngine) (*RecoverHandler, error) {
 	storeIdent, err := loadStoreIdent(raftEngine)
 	if err != nil {
 		return nil, err

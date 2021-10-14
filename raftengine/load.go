@@ -175,13 +175,15 @@ func (e *Engine) loadStateFile(epochID uint32) error {
 		data = data[8:]
 		keyLen := binary.LittleEndian.Uint16(data)
 		data = data[2:]
+		version := binary.LittleEndian.Uint64(data)
+		data = data[8:]
 		key := data[:keyLen]
 		data = data[keyLen:]
 		valLen := binary.LittleEndian.Uint32(data)
 		data = data[4:]
 		val := data[:valLen]
 		data = data[valLen:]
-		e.states.ReplaceOrInsert(&stateItem{regionID: regionID, key: y.Copy(key), val: y.Copy(val)})
+		e.states.ReplaceOrInsert(&stateItem{regionID: regionID, key: y.Copy(key), val: y.Copy(val), version: version})
 	}
 	return err
 }

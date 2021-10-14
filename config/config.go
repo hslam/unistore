@@ -117,7 +117,7 @@ var DefaultConf = Config{
 		GRPCRaftConnNum:          1,
 	},
 	Engine: Engine{
-		Path:                   "/tmp/badger",
+		Path: "/tmp/badger",
 		MaxMemTableSizeFactor:  128,
 		MaxTableSize:           8 * MB,
 		NumL0Tables:            4,

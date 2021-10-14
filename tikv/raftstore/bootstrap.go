@@ -37,12 +37,12 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	}
 	ident.ClusterId = clussterID
 	ident.StoreId = storeID
-	wb := raftengine.NewWriteBatch()
+	wb := raftengine.NewMergeWriteBatch(raftengine.BootstrapEngineIndex)
 	val, err := ident.Marshal()
 	if err != nil {
 		return err
 	}
-	wb.SetState(0, StoreIdentKey(), val)
+	wb.SetState(0, StoreIdentKey(), val, 0)
 	return engines.raft.Write(wb)
 }
 
@@ -63,14 +63,14 @@ func PrepareBootstrap(engines *Engines, storeID, regionID, peerID uint64) (*meta
 func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	state := new(rspb.RegionLocalState)
 	state.Region = region
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewMergeWriteBatch(raftengine.BootstrapEngineIndex)
 	val, _ := state.Marshal()
-	raftWB.SetState(0, PrepareBootstrapKey(), val)
-	raftWB.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), val)
+	raftWB.SetState(0, PrepareBootstrapKey(), val, 0)
+	raftWB.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), val, region.RegionEpoch.Version)
 	writeInitialRaftState(raftWB, region)
 	ingestTree := initialIngestTree(region.Id, region.RegionEpoch.Version)
 	csBin, _ := ingestTree.ChangeSet.Marshal()
-	raftWB.SetState(region.Id, KVEngineMetaKey(), csBin)
+	raftWB.SetState(region.Id, KVEngineMetaKey(), csBin, ingestTree.ChangeSet.ShardVer)
 	err := engines.raft.Write(raftWB)
 	if err != nil {
 		return err
@@ -113,31 +113,35 @@ func newBootstrapRegion(regionID, peerID, storeID uint64) *metapb.Region {
 	}
 }
 
-func writeInitialRaftState(raftWB *raftengine.WriteBatch, region *metapb.Region) {
+func writeInitialRaftState(raftWB *raftengine.MergeWriteBatch, region *metapb.Region) {
 	raftState := raftState{
 		lastIndex: RaftInitLogIndex,
 		term:      RaftInitLogTerm,
 		commit:    RaftInitLogIndex,
 	}
-	raftWB.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), raftState.Marshal())
+	raftWB.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), raftState.Marshal(), region.RegionEpoch.Version)
 }
 
 func ClearPrepareBootstrap(engines *Engines, region *metapb.Region) error {
-	wb := raftengine.NewWriteBatch()
-	wb.SetState(0, PrepareBootstrapKey(), nil)
-	wb.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), nil)
-	wb.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), nil)
-	wb.SetState(region.Id, KVEngineMetaKey(), nil)
-	err := engines.raft.Write(wb)
-	if err != nil {
-		return errors.WithStack(err)
+	for i := 0; i < raftengine.NumOfEngines; i++ {
+		wb := raftengine.NewMergeWriteBatch(raftengine.EngineIndex(i))
+		if raftengine.EngineIndex(i) == raftengine.BootstrapEngineIndex {
+			wb.SetState(0, PrepareBootstrapKey(), nil, 0)
+		}
+		wb.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), nil, 0)
+		wb.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), nil, 0)
+		wb.SetState(region.Id, KVEngineMetaKey(), nil, 0)
+		err := engines.raft.Write(wb)
+		if err != nil {
+			return errors.WithStack(err)
+		}
 	}
 	return engines.kv.RemoveShard(region.Id, true)
 }
 
 func ClearPrepareBootstrapState(engines *Engines) error {
-	wb := raftengine.NewWriteBatch()
-	wb.SetState(0, PrepareBootstrapKey(), nil)
+	wb := raftengine.NewMergeWriteBatch(raftengine.BootstrapEngineIndex)
+	wb.SetState(0, PrepareBootstrapKey(), nil, 0)
 	err := engines.raft.Write(wb)
 	return errors.WithStack(err)
 }

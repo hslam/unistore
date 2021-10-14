@@ -793,7 +793,7 @@ func (d *peerMsgHandler) onReadySplitRegion(derived *metapb.Region, regions []*m
 			store := d.peer.Store()
 			// The raft state key changed when region version change, we need to set it here.
 			y.Assert(store.raftState.commit > 0)
-			d.ctx.raftWB.SetState(regionID, RaftStateKey(d.region().RegionEpoch.Version), store.raftState.Marshal())
+			d.ctx.raftWB.SetState(regionID, RaftStateKey(d.region().RegionEpoch.Version), store.raftState.Marshal(), d.region().RegionEpoch.Version)
 			// Reset the flush state for derived region.
 			store.initialFlushed = false
 			store.splitStage = enginepb.SplitStage_INITIAL

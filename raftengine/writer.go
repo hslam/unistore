@@ -124,10 +124,10 @@ func (w *walWriter) appendRaftLog(op raftLogOp) {
 }
 
 func stateSize(key, val []byte) int {
-	return entryHdrSize + 8 + 2 + len(key) + len(val)
+	return entryHdrSize + 8 + 2 + 8 + len(key) + len(val)
 }
 
-func (w *walWriter) appendState(regionID uint64, key, val []byte) {
+func (w *walWriter) appendState(regionID uint64, key, val []byte, version uint64) {
 	size := stateSize(key, val)
 	if size+len(w.buf) > cap(w.buf) {
 		w.reallocate()
@@ -135,6 +135,7 @@ func (w *walWriter) appendState(regionID uint64, key, val []byte) {
 	w.appendHdr(typeState, size-entryHdrSize)
 	w.buf = sstable.AppendU64(w.buf, regionID)
 	w.buf = sstable.AppendU16(w.buf, uint16(len(key)))
+	w.buf = sstable.AppendU64(w.buf, version)
 	w.buf = append(w.buf, key...)
 	w.buf = append(w.buf, val...)
 }
