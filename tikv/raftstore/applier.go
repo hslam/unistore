@@ -36,7 +36,6 @@ import (
 	"github.com/pingcap/log"
 	"github.com/pingcap/tidb/util/codec"
 	"github.com/uber-go/atomic"
-	"github.com/go-playground/locales/rw"
 )
 
 type pendingCmd struct {
@@ -230,7 +229,7 @@ type applyContext struct {
 	tag              string
 	timer            *time.Time
 	regionScheduler  chan<- task
-	applyResChs       []chan<- Msg
+	applyResChs      []chan<- Msg
 	engines          *Engines
 	applyBatch       *applyBatch
 	applyTaskResList []*applyTaskRes
@@ -248,7 +247,7 @@ func newApplyContext(tag string, regionScheduler chan<- task, engines *Engines,
 		tag:             tag,
 		regionScheduler: regionScheduler,
 		engines:         engines,
-		applyResChs:      applyResChs,
+		applyResChs:     applyResChs,
 		useDeleteRange:  cfg.UseDeleteRange,
 		wb:              NewKVWriteBatch(engines.kv),
 	}
@@ -264,7 +263,7 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 		execResults: results,
 		metrics:     d.metrics,
 	}
-	idx := hashRegionID( d.region.Id)%uint64(len(ac.applyResChs))
+	idx := hashRegionID(d.region.Id) % uint64(len(ac.applyResChs))
 	ac.applyResChs[idx] <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
 }
 
