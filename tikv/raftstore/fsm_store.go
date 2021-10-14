@@ -380,7 +380,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	}
 	log.S().Infof("raft worker cnt %d", ctx.cfg.RaftWorkerCnt)
 	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
-		rw := newRaftWorker(ctx, router.peerSenders[i], router, applyChs, applyResCh)
+		rw := newRaftWorker(ctx, router.peerSenders[i], router, applyChs, applyResCh, i, ctx.cfg.RaftWorkerCnt)
 		go rw.run(bs.closeCh, bs.wg)
 	}
 	log.S().Infof("apply worker cnt %d", ctx.cfg.ApplyWorkerCnt)

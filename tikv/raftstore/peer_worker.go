@@ -82,6 +82,9 @@ func hashRegionID(regionID uint64) uint64 {
 type raftWorker struct {
 	pr *router
 
+	idx           int
+	raftWorkerCnt int
+
 	inboxes map[uint64]*peerInbox
 	ticker  *time.Ticker
 	raftCh  chan Msg
@@ -99,7 +102,7 @@ type raftWorker struct {
 	handleReadyDc *durationCollector
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyChs []chan *peerApplyBatch, applyResCh chan Msg) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyChs []chan *peerApplyBatch, applyResCh chan Msg, idx, raftWorkerCnt int) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
@@ -107,6 +110,8 @@ func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyChs []chan 
 		localStats:    new(storeStats),
 	}
 	return &raftWorker{
+		idx:           idx,
+		raftWorkerCnt: raftWorkerCnt,
 		raftCh:        ch,
 		applyResCh:    applyResCh,
 		inboxes:       map[uint64]*peerInbox{},
@@ -174,7 +179,9 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 	case <-rw.ticker.C:
 		rw.pr.peers.Range(func(key, value interface{}) bool {
 			regionID := key.(uint64)
-			rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
+			if uint64(rw.idx) == hashRegionID(regionID)%uint64(rw.raftWorkerCnt) {
+				rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
+			}
 			return true
 		})
 	}
