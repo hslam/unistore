@@ -263,8 +263,12 @@ func (ac *applyContext) finishFor(d *applier, results []execResult) {
 		execResults: results,
 		metrics:     d.metrics,
 	}
-	idx := hashRegionID(d.region.Id) % uint64(len(ac.applyResChs))
-	ac.applyResChs[idx] <- NewPeerMsg(MsgTypeApplyRes, res.regionID, res)
+	ac.send(NewPeerMsg(MsgTypeApplyRes, res.regionID, res))
+}
+
+func (ac *applyContext) send(msg Msg) {
+	idx := hashRegionID(msg.RegionID) % uint64(len(ac.applyResChs))
+	ac.applyResChs[idx] <- msg
 }
 
 /// Calls the callback of `cmd` when the Region is removed.
@@ -1340,10 +1344,10 @@ func (a *applier) destroy(aCtx *applyContext) {
 func (a *applier) handleDestroy(aCtx *applyContext, regionID uint64) {
 	if !a.stopped {
 		a.destroy(aCtx)
-		aCtx.applyResCh <- NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
+		aCtx.send(NewPeerMsg(MsgTypeApplyRes, a.region.Id, &applyTaskRes{
 			regionID:      a.region.Id,
 			destroyPeerID: a.peer.Id,
-		})
+		}))
 	}
 }
 
