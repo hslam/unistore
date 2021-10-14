@@ -56,8 +56,8 @@ func (b *WriteBatch) TruncateRaftLog(regionID, index uint64) {
 	b.size += truncateSize()
 }
 
-func (b *WriteBatch) SetState(regionID uint64, key, val []byte) {
-	b.stateOps = append(b.stateOps, stateOp{regionID: regionID, key: key, val: val})
+func (b *WriteBatch) SetState(regionID uint64, key, val []byte, version uint64) {
+	b.stateOps = append(b.stateOps, stateOp{regionID: regionID, key: key, val: val, version: version})
 	b.size += stateSize(key, val)
 }
 
@@ -107,6 +107,7 @@ type stateOp struct {
 	regionID uint64
 	key      []byte
 	val      []byte
+	version  uint64
 }
 
 func (e *Engine) Write(wb *WriteBatch) error {
@@ -141,7 +142,7 @@ func (e *Engine) Write(wb *WriteBatch) error {
 		regionRaftLogs.append(op)
 	}
 	for _, op := range wb.stateOps {
-		e.writer.appendState(op.regionID, op.key, op.val)
+		e.writer.appendState(op.regionID, op.key, op.val, op.version)
 	}
 	e.stateMu.Lock()
 	for _, op := range wb.stateOps {
@@ -188,6 +189,7 @@ type stateItem struct {
 	regionID uint64
 	key      []byte
 	val      []byte
+	version  uint64
 }
 
 func (b *stateItem) Less(than btree.Item) bool {
@@ -198,19 +200,21 @@ func (b *stateItem) Less(than btree.Item) bool {
 	return bytes.Compare(b.key, than.(*stateItem).key) < 0
 }
 
-func (e *Engine) GetState(regionID uint64, key []byte) []byte {
+func (e *Engine) GetState(regionID uint64, key []byte) (value []byte, version uint64) {
 	e.stateMu.RLock()
 	val := e.states.Get(&stateItem{regionID: regionID, key: key})
 	e.stateMu.RUnlock()
 	if val != nil {
-		return val.(*stateItem).val
+		si := val.(*stateItem)
+		return si.val, si.version
 	}
-	return nil
+	return nil, 0
 }
 
 type RegionRaftLogs struct {
 	raftLogRange
-	raftLogs []raftLogOp
+	raftLogs     map[uint64]raftLogOp
+	raftLogIndex []uint64
 }
 
 func (re *RegionRaftLogs) prepareAppend(index uint64) {
@@ -218,23 +222,26 @@ func (re *RegionRaftLogs) prepareAppend(index uint64) {
 		// initialize index
 		re.startIndex = index
 		re.endIndex = index
+		re.raftLogs = make(map[uint64]raftLogOp)
 		return
 	}
-	if index < re.startIndex || re.endIndex < index {
+	if index < re.startIndex {
 		// Out of bound index truncate all entries.
 		re.startIndex = index
 		re.endIndex = index
-		re.raftLogs = re.raftLogs[:0]
+		re.raftLogs = make(map[uint64]raftLogOp)
+		re.raftLogIndex = re.raftLogIndex[:0]
 		return
 	}
-	localIdx := index - re.startIndex
-	re.raftLogs = re.raftLogs[:localIdx]
+	localIdx := len(re.raftLogs)
+	re.raftLogIndex = re.raftLogIndex[:localIdx]
 	re.endIndex = index
 }
 
 func (re *RegionRaftLogs) append(op raftLogOp) {
 	re.prepareAppend(op.index)
-	re.raftLogs = append(re.raftLogs, op)
+	re.raftLogs[op.index] = op
+	re.raftLogIndex = append(re.raftLogIndex, op.index)
 	re.endIndex++
 }
 
@@ -245,27 +252,36 @@ func (re *RegionRaftLogs) truncate(index uint64) (empty bool) {
 	if index > re.endIndex {
 		re.startIndex = index
 		re.endIndex = index
-		re.raftLogs = re.raftLogs[:0]
+		re.raftLogs = make(map[uint64]raftLogOp)
+		re.raftLogIndex = re.raftLogIndex[:0]
 		return true
 	}
-	localIdx := index - re.startIndex
+	var localIdx = len(re.raftLogIndex)
 	re.startIndex = index
-	re.raftLogs = re.raftLogs[localIdx:]
-	return len(re.raftLogs) == 0
+	for i, idx := range re.raftLogIndex {
+		if index <= idx {
+			localIdx = i
+			break
+		}
+		delete(re.raftLogs, idx)
+	}
+	re.raftLogIndex = re.raftLogIndex[localIdx:]
+	return len(re.raftLogIndex) == 0
 }
 
 func (re *RegionRaftLogs) Get(index uint64) *eraftpb.Entry {
 	if index < re.startIndex || index >= re.endIndex {
 		return nil
 	}
-	localIdx := index - re.startIndex
-	op := re.raftLogs[localIdx]
-	return &eraftpb.Entry{
-		EntryType: eraftpb.EntryType(op.eType),
-		Term:      uint64(op.term),
-		Index:     op.index,
-		Data:      op.data,
+	if op, ok := re.raftLogs[index]; ok {
+		return &eraftpb.Entry{
+			EntryType: eraftpb.EntryType(op.eType),
+			Term:      uint64(op.term),
+			Index:     op.index,
+			Data:      op.data,
+		}
 	}
+	return nil
 }
 
 func (re *RegionRaftLogs) GetRange() (startIndex, endIndex uint64) {
@@ -289,7 +305,7 @@ func (e *Engine) GetRegionRaftLogs(regionID uint64) *RegionRaftLogs {
 	return re
 }
 
-func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, val []byte) error) error {
+func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(item *stateItem) error) error {
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()
 	var err error
@@ -297,7 +313,7 @@ func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, va
 	endItem := &stateItem{regionID: regionID + 1}
 	iterator := func(i btree.Item) bool {
 		item := i.(*stateItem)
-		err = fn(item.key, item.val)
+		err = fn(item)
 		return err == nil
 	}
 	if desc {
@@ -308,13 +324,13 @@ func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, va
 	return err
 }
 
-func (e *Engine) IterateAllStates(desc bool, fn func(regionID uint64, key, val []byte) error) error {
+func (e *Engine) IterateAllStates(desc bool, fn func(item *stateItem) error) error {
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()
 	var err error
 	iterator := func(i btree.Item) bool {
 		item := i.(*stateItem)
-		err = fn(item.regionID, item.key, item.val)
+		err = fn(item)
 		return err == nil
 	}
 	if desc {

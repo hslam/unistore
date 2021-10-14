@@ -142,8 +142,16 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	}
 }
 
-func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {
-	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize)
+func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.MergeEngine, error) {
+	var dirs []string
+	if len(conf.Paths) == raftengine.NumOfEngines {
+		dirs = make([]string, len(conf.Paths))
+		for i := 0; i < len(conf.Paths); i++ {
+			dirs[i] = filepath.Join(conf.Paths[i], subPath)
+		}
+		return raftengine.OpenMergeEnginesByPaths(dirs, conf.WALSize)
+	}
+	return raftengine.OpenMergeEngines(filepath.Join(conf.Path, subPath), conf.WALSize)
 }
 
 func createKVEngine(subPath string, listener *raftstore.MetaChangeListener,
