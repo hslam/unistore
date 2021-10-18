@@ -46,7 +46,7 @@ type RaftStore struct {
 	RaftBaseTickInterval     string `toml:"raft-base-tick-interval"`     // raft-base-tick-interval in milliseconds
 	RaftHeartbeatTicks       int    `toml:"raft-heartbeat-ticks"`        // raft-heartbeat-ticks times
 	RaftElectionTimeoutTicks int    `toml:"raft-election-timeout-ticks"` // raft-election-timeout-ticks times
-	RaftWorkerCnt            int    `toml:"raft-worker-count"`
+	RaftWorkerCount          int    `toml:"raft-worker-count"`
 	ApplyWorkerCount         int    `toml:"apply-worker-count"`
 	GRPCRaftConnNum          int    `toml:"grpc-raft-conn-num"`
 	GitHash                  string
@@ -112,11 +112,12 @@ var DefaultConf = Config{
 		RaftBaseTickInterval:     "1s",
 		RaftHeartbeatTicks:       2,
 		RaftElectionTimeoutTicks: 10,
+		RaftWorkerCount:          4,
 		ApplyWorkerCount:         3,
 		GRPCRaftConnNum:          1,
 	},
 	Engine: Engine{
-		Path: "/tmp/badger",
+		Path:                   "/tmp/badger",
 		MaxMemTableSizeFactor:  128,
 		MaxTableSize:           8 * MB,
 		NumL0Tables:            4,
