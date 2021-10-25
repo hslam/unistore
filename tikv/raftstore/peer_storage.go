@@ -178,7 +178,7 @@ func initRaftState(raftEngine *raftengine.Engine, region *metapb.Region) (raftSt
 			raftState.lastIndex = RaftInitLogIndex
 			raftState.term = RaftInitLogTerm
 			raftState.commit = RaftInitLogIndex
-			wb := raftengine.NewWriteBatch()
+			wb := raftengine.NewRegionWriteBatch(region.Id)
 			wb.SetState(region.Id, raftStateKey, raftState.Marshal())
 			err := raftEngine.Write(wb)
 			if err != nil {

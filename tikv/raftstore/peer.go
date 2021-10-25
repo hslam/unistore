@@ -447,7 +447,7 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	log.S().Infof("%v begin to destroy", p.Tag)
 
 	// Set Tombstone state explicitly
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewRegionWriteBatch(region.Id)
 	p.Store().clearMeta(raftWB)
 	var mergeState *rspb.MergeState
 	if p.PendingMergeState != nil {

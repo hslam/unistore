@@ -211,7 +211,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	var regionPeers []*peerFsm
 
 	t := time.Now()
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewWriteBatch(0, bs.ctx.cfg.RaftWorkerCnt)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
 	ctx.storeMetaLock.Lock()
@@ -375,7 +375,7 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	go mw.run(bs.closeCh, bs.wg)
 
 	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
-		rw := newRaftWorker(ctx, mw.raftChs[i], mw.applyChs)
+		rw := newRaftWorker(uint64(i), ctx.cfg.RaftWorkerCnt, ctx, mw.raftChs[i], mw.applyChs)
 		go rw.run(bs.closeCh, bs.wg)
 	}
 

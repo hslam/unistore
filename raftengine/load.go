@@ -81,7 +81,7 @@ func (e *epoch) addFile(filename string) error {
 	return nil
 }
 
-func (e *Engine) readEpochs() ([]*epoch, error) {
+func (e *engine) readEpochs() ([]*epoch, error) {
 	epochMap := make(map[uint32]*epoch)
 	recyclePath := filepath.Join(e.dir, recycleDir)
 	err := filepath.Walk(e.dir, func(path string, info fs.FileInfo, err error) error {
@@ -109,7 +109,7 @@ func (e *Engine) readEpochs() ([]*epoch, error) {
 	return epochs, nil
 }
 
-func (e *Engine) loadEpoch(ep *epoch) (walOffset int64, err error) {
+func (e *engine) loadEpoch(ep *epoch) (walOffset int64, err error) {
 	log.S().Infof("load epoch %d, rlog files %d, hasWAL %v, hasState %v", ep.id, len(ep.raftLogFiles), ep.hasWALFile, ep.hasStatesFile)
 	if ep.hasWALFile {
 		walOffset, err = e.loadWALFile(ep.id)
@@ -139,7 +139,7 @@ const (
 	typeTruncate uint32 = 3
 )
 
-func (e *Engine) loadWALFile(epochID uint32) (offset int64, err error) {
+func (e *engine) loadWALFile(epochID uint32) (offset int64, err error) {
 	it := newIterator(e.dir, epochID)
 	err = it.iterate(func(tp uint32, entryData []byte) bool {
 		switch tp {
@@ -167,7 +167,7 @@ func (e *Engine) loadWALFile(epochID uint32) (offset int64, err error) {
 	return it.offset, err
 }
 
-func (e *Engine) loadStateFile(epochID uint32) error {
+func (e *engine) loadStateFile(epochID uint32) error {
 	filename := statesFileName(e.dir, epochID)
 	data, err := readFile(filename)
 	for len(data) > 0 {
@@ -199,7 +199,7 @@ func readFile(filename string) ([]byte, error) {
 	return data[:checksumOff], nil
 }
 
-func (e *Engine) loadRaftLogFile(epochID uint32, regionID uint64, raftLogRange raftLogRange) error {
+func (e *engine) loadRaftLogFile(epochID uint32, regionID uint64, raftLogRange raftLogRange) error {
 	rlogFilename := raftLogFileName(e.dir, epochID, regionID, raftLogRange)
 	data, err := readFile(rlogFilename)
 	if err != nil {
@@ -227,7 +227,7 @@ func (e *Engine) loadRaftLogFile(epochID uint32, regionID uint64, raftLogRange r
 	return nil
 }
 
-func (e *Engine) loadTruncate(entry []byte) {
+func (e *engine) loadTruncate(entry []byte) {
 	regionID, index := parseTruncate(entry)
 	entries := getRegionRaftLogs(e.entriesMap, regionID)
 	if empty := entries.truncate(index); empty {
