@@ -431,7 +431,6 @@ func newDurationCollector(name string) *durationCollector {
 func (dc *durationCollector) collect(dur time.Duration) {
 	dc.total += dur
 	dc.cnt++
-	metrics.WorkerTaskDurationSeconds.WithLabelValues(dc.name).Observe(float64(dur) / float64(time.Second))
 	if dur > 5*time.Millisecond {
 		dc.top = append(dc.top, dur)
 	}

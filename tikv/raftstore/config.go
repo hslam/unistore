@@ -212,7 +212,7 @@ func NewDefaultConfig() *Config {
 		GrpcRaftConnNum:          1,
 		Addr:                     "127.0.0.1:20160",
 		SplitCheck:               newDefaultSplitCheckConfig(),
-		RaftWorkerCnt:            4,
+		RaftWorkerCnt:            1,
 		ApplyWorkerCnt:           4,
 	}
 }

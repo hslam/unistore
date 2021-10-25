@@ -76,7 +76,7 @@ func NewServer(conf *config.Config, pdClient pd.Client) (*Server, error) {
 	allocator := &idAllocator{
 		pdCli: pdClient,
 	}
-	raftEngine, err := createRaftEngine(subPathRaft, &conf.RaftEngine, conf.RaftStore.RaftWorkerCount)
+	raftEngine, err := createRaftEngine(subPathRaft, &conf.RaftEngine)
 	if err != nil {
 		return nil, errors.AddStack(err)
 	}
@@ -133,7 +133,9 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
 
 	raftConf.SplitCheck.RegionMaxSize = uint64(conf.Server.RegionSize)
-	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkerCount
+	if count := len(conf.RaftEngine.Paths); count > 0 {
+		raftConf.RaftWorkerCnt = len(conf.RaftEngine.Paths)
+	}
 	raftConf.ApplyWorkerCnt = conf.RaftStore.ApplyWorkerCount
 	raftConf.GrpcRaftConnNum = uint64(conf.RaftStore.GRPCRaftConnNum)
 	raftConf.StatusAddr = conf.Server.StatusAddr
@@ -143,8 +145,18 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	}
 }
 
-func createRaftEngine(subPath string, conf *config.RaftEngine, RaftWorkerCount int) (*raftengine.Engine, error) {
-	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize, RaftWorkerCount)
+func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {
+	var dirs []string
+	if len(conf.Paths) > 0 {
+		dirs = make([]string, len(conf.Paths))
+		for i := 0; i < len(conf.Paths); i++ {
+			dirs[i] = filepath.Join(conf.Paths[i], subPath)
+		}
+	} else {
+		dirs = make([]string, 1)
+		dirs[0] = filepath.Join(conf.Path, subPath)
+	}
+	return raftengine.Open(dirs, conf.WALSize)
 }
 
 func createKVEngine(subPath string, listener *raftstore.MetaChangeListener,

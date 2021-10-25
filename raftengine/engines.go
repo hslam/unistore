@@ -15,7 +15,6 @@ package raftengine
 
 import (
 	"encoding/binary"
-	"fmt"
 	"github.com/dgryski/go-farm"
 	"github.com/pingcap/kvproto/pkg/eraftpb"
 )
@@ -95,13 +94,13 @@ type Engine struct {
 	raftEngines []*engine
 }
 
-func Open(dir string, walSize int64, count int) (*Engine, error) {
+func Open(dirs []string, walSize int64) (*Engine, error) {
 	es := &Engine{
-		raftEngines: make([]*engine, count),
+		raftEngines: make([]*engine, len(dirs)),
 	}
-	for i := 0; i < count; i++ {
+	for i := 0; i < len(dirs); i++ {
 		var err error
-		es.raftEngines[i], err = open(fmt.Sprintf("%s-%d", dir, i), walSize)
+		es.raftEngines[i], err = open(dirs[i], walSize)
 		if err != nil {
 			return nil, err
 		}
