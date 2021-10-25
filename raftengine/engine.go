@@ -23,7 +23,7 @@ import (
 	"sync"
 )
 
-type Engine struct {
+type engine struct {
 	dir        string
 	writer     *walWriter
 	writeMu    sync.Mutex
@@ -34,49 +34,49 @@ type Engine struct {
 	worker     *worker
 }
 
-type WriteBatch struct {
+type writeBatch struct {
 	truncates  []truncateOp
 	raftLogOps []raftLogOp
 	stateOps   []stateOp
 	size       int
 }
 
-func NewWriteBatch() *WriteBatch {
-	return &WriteBatch{size: batchHdrSize}
+func newWriteBatch() *writeBatch {
+	return &writeBatch{size: batchHdrSize}
 }
 
-func (b *WriteBatch) AppendRaftLog(regionID uint64, entry *eraftpb.Entry) {
+func (b *writeBatch) AppendRaftLog(regionID uint64, entry *eraftpb.Entry) {
 	op := newRaftLogOp(regionID, entry)
 	b.raftLogOps = append(b.raftLogOps, op)
 	b.size += raftLogSize(op)
 }
 
-func (b *WriteBatch) TruncateRaftLog(regionID, index uint64) {
+func (b *writeBatch) TruncateRaftLog(regionID, index uint64) {
 	b.truncates = append(b.truncates, truncateOp{regionID: regionID, index: index})
 	b.size += truncateSize()
 }
 
-func (b *WriteBatch) SetState(regionID uint64, key, val []byte) {
+func (b *writeBatch) SetState(regionID uint64, key, val []byte) {
 	b.stateOps = append(b.stateOps, stateOp{regionID: regionID, key: key, val: val})
 	b.size += stateSize(key, val)
 }
 
-func (wb *WriteBatch) Size() int {
+func (wb *writeBatch) Size() int {
 	return wb.size
 }
 
-func (wb *WriteBatch) NumEntries() int {
+func (wb *writeBatch) NumEntries() int {
 	return len(wb.truncates) + len(wb.raftLogOps) + len(wb.stateOps)
 }
 
-func (b *WriteBatch) Reset() {
+func (b *writeBatch) Reset() {
 	b.raftLogOps = b.raftLogOps[:0]
 	b.truncates = b.truncates[:0]
 	b.stateOps = b.stateOps[:0]
 	b.size = batchHdrSize
 }
 
-func (b *WriteBatch) IsEmpty() bool {
+func (b *writeBatch) IsEmpty() bool {
 	return b.size == batchHdrSize
 }
 
@@ -109,7 +109,7 @@ type stateOp struct {
 	val      []byte
 }
 
-func (e *Engine) Write(wb *WriteBatch) error {
+func (e *engine) Write(wb *writeBatch) error {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
 	if int64(wb.size)+e.writer.offset() > e.writer.walSize {
@@ -165,7 +165,7 @@ func (e *Engine) Write(wb *WriteBatch) error {
 	return e.writer.flush()
 }
 
-func (e *Engine) IsEmpty() bool {
+func (e *engine) IsEmpty() bool {
 	e.mapMu.RLock()
 	mapEmpty := len(e.entriesMap) == 0
 	e.mapMu.RUnlock()
@@ -198,7 +198,7 @@ func (b *stateItem) Less(than btree.Item) bool {
 	return bytes.Compare(b.key, than.(*stateItem).key) < 0
 }
 
-func (e *Engine) GetState(regionID uint64, key []byte) []byte {
+func (e *engine) GetState(regionID uint64, key []byte) []byte {
 	e.stateMu.RLock()
 	val := e.states.Get(&stateItem{regionID: regionID, key: key})
 	e.stateMu.RUnlock()
@@ -272,7 +272,7 @@ func (re *RegionRaftLogs) GetRange() (startIndex, endIndex uint64) {
 	return re.startIndex, re.endIndex
 }
 
-func (e *Engine) GetRegionRaftLogs(regionID uint64) *RegionRaftLogs {
+func (e *engine) GetRegionRaftLogs(regionID uint64) *RegionRaftLogs {
 	e.mapMu.RLock()
 	re, ok := e.entriesMap[regionID]
 	e.mapMu.RUnlock()
@@ -289,7 +289,7 @@ func (e *Engine) GetRegionRaftLogs(regionID uint64) *RegionRaftLogs {
 	return re
 }
 
-func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, val []byte) error) error {
+func (e *engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, val []byte) error) error {
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()
 	var err error
@@ -308,7 +308,7 @@ func (e *Engine) IterateRegionStates(regionID uint64, desc bool, fn func(key, va
 	return err
 }
 
-func (e *Engine) IterateAllStates(desc bool, fn func(regionID uint64, key, val []byte) error) error {
+func (e *engine) IterateAllStates(desc bool, fn func(regionID uint64, key, val []byte) error) error {
 	e.stateMu.RLock()
 	defer e.stateMu.RUnlock()
 	var err error
@@ -325,12 +325,12 @@ func (e *Engine) IterateAllStates(desc bool, fn func(regionID uint64, key, val [
 	return err
 }
 
-func Open(dir string, walSize int64) (*Engine, error) {
+func open(dir string, walSize int64) (*engine, error) {
 	err := maybeCreateDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	e := &Engine{
+	e := &engine{
 		dir:        dir,
 		entriesMap: map[uint64]*RegionRaftLogs{},
 		states:     btree.New(8),
@@ -380,7 +380,7 @@ func maybeCreateDir(dir string) error {
 	return nil
 }
 
-func (e *Engine) Close() error {
+func (e *engine) Close() error {
 	close(e.worker.done)
 	e.worker.wg.Wait()
 	return e.writer.fd.Close()

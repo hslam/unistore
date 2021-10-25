@@ -40,7 +40,7 @@ type router struct {
 
 func newRouter(storeSender chan<- Msg, storeFsm *storeFsm) *router {
 	pm := &router{
-		peerSender:  make(chan Msg, 4096),
+		peerSender:  make(chan Msg, 65536),
 		storeSender: storeSender,
 		storeFsm:    storeFsm,
 	}

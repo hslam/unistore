@@ -76,7 +76,7 @@ func NewServer(conf *config.Config, pdClient pd.Client) (*Server, error) {
 	allocator := &idAllocator{
 		pdCli: pdClient,
 	}
-	raftEngine, err := createRaftEngine(subPathRaft, &conf.RaftEngine)
+	raftEngine, err := createRaftEngine(subPathRaft, &conf.RaftEngine, conf.RaftStore.RaftWorkerCount)
 	if err != nil {
 		return nil, errors.AddStack(err)
 	}
@@ -143,8 +143,8 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	}
 }
 
-func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {
-	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize)
+func createRaftEngine(subPath string, conf *config.RaftEngine, RaftWorkerCount int) (*raftengine.Engine, error) {
+	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize, RaftWorkerCount)
 }
 
 func createKVEngine(subPath string, listener *raftstore.MetaChangeListener,
