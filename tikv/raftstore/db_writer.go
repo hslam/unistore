@@ -41,6 +41,10 @@ func (writer *engineWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb
 	return NewCustomWriteBatch(startTS, commitTS, ctx)
 }
 
+func (writer *engineWriter) NewWriteBatchWithBuffer(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {
+	return NewCustomWriteBatchWithBuffer(startTS, commitTS, ctx)
+}
+
 func (writer *engineWriter) Write(batch mvcc.WriteBatch) error {
 	return writer.write(batch, NewCallback())
 }
@@ -125,6 +129,10 @@ func (w *TestRaftWriter) NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Co
 	return NewCustomWriteBatch(startTS, commitTS, ctx)
 }
 
+func (w *TestRaftWriter) NewWriteBatchWithBuffer(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {
+	return NewCustomWriteBatchWithBuffer(startTS, commitTS, ctx)
+}
+
 func NewTestRaftWriter(engine *Engines) mvcc.EngineWriter {
 	writer := &TestRaftWriter{
 		engine: engine,
@@ -136,6 +144,10 @@ type customWriteBatch struct {
 	startTS  uint64
 	commitTS uint64
 	builder  *raftlog.CustomBuilder
+}
+
+func (wb *customWriteBatch) Reset() {
+	wb.builder.Reset()
 }
 
 func (wb *customWriteBatch) setType(tp raftlog.CustomRaftLogType) {
@@ -184,6 +196,21 @@ func NewCustomWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.Wr
 		StoreID:  ctx.Peer.StoreId,
 	}
 	b := raftlog.NewBuilder(header)
+	return &customWriteBatch{
+		startTS:  startTS,
+		commitTS: commitTS,
+		builder:  b,
+	}
+}
+
+func NewCustomWriteBatchWithBuffer(startTS, commitTS uint64, ctx *kvrpcpb.Context) mvcc.WriteBatch {
+	header := raftlog.CustomHeader{
+		RegionID: ctx.RegionId,
+		Epoch:    raftlog.NewEpoch(ctx.RegionEpoch.Version, ctx.RegionEpoch.ConfVer),
+		PeerID:   ctx.Peer.Id,
+		StoreID:  ctx.Peer.StoreId,
+	}
+	b := raftlog.NewBuilderWithBuffer(header)
 	return &customWriteBatch{
 		startTS:  startTS,
 		commitTS: commitTS,
