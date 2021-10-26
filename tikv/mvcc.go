@@ -695,8 +695,7 @@ func (store *MVCCStore) prewriteMutations(reqCtx *requestCtx, mutations []*kvrpc
 		}
 	}
 
-	batch := store.writer.NewWriteBatchWithBuffer(req.StartVersion, 0, reqCtx.rpcCtx)
-	defer batch.Reset()
+	batch := store.writer.NewWriteBatch(req.StartVersion, 0, reqCtx.rpcCtx)
 	for i, m := range mutations {
 		if m.Op == kvrpcpb.Op_CheckNotExists {
 			continue
