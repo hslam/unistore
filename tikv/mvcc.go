@@ -726,7 +726,7 @@ func (store *MVCCStore) tryOnePC(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	reqCtx.onePCCommitTS = minCommitTS
 	store.updateLatestTS(minCommitTS)
 	batch := store.writer.NewWriteBatchWithBuffer(req.StartVersion, minCommitTS, reqCtx.rpcCtx)
-
+	defer batch.Reset()
 	for i, m := range mutations {
 		if m.Op == kvrpcpb.Op_CheckNotExists {
 			continue
@@ -743,7 +743,6 @@ func (store *MVCCStore) tryOnePC(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	if err := store.writer.Write(batch); err != nil {
 		return false, err
 	}
-	batch.Reset()
 	return true, nil
 }
 
