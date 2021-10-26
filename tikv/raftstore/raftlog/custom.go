@@ -19,6 +19,7 @@ import (
 	"github.com/ngaut/unistore/enginepb"
 	"unsafe"
 
+	"github.com/ngaut/unistore/engine/buffer"
 	"github.com/pingcap/kvproto/pkg/raft_cmdpb"
 )
 
@@ -195,11 +196,27 @@ type CustomBuilder struct {
 	cnt  int
 }
 
+const bufferSize = 65536
+
+var pool = buffer.AssignPool(bufferSize)
+
+func NewBuilderWithBuffer(header CustomHeader) *CustomBuilder {
+	b := &CustomBuilder{}
+	b.data = pool.GetBuffer(bufferSize)[:0]
+	b.data = append(b.data, CustomRaftLogFlag, 0, 0, 0)
+	b.data = append(b.data, header.Marshal()...)
+	return b
+}
+
 func NewBuilder(header CustomHeader) *CustomBuilder {
 	b := &CustomBuilder{}
 	b.data = append(b.data, CustomRaftLogFlag, 0, 0, 0)
 	b.data = append(b.data, header.Marshal()...)
 	return b
+}
+
+func (b *CustomBuilder) Reset() {
+	pool.PutBuffer(b.data)
 }
 
 func (b *CustomBuilder) AppendLock(key, value []byte) {

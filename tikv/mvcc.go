@@ -695,8 +695,8 @@ func (store *MVCCStore) prewriteMutations(reqCtx *requestCtx, mutations []*kvrpc
 		}
 	}
 
-	batch := store.writer.NewWriteBatch(req.StartVersion, 0, reqCtx.rpcCtx)
-
+	batch := store.writer.NewWriteBatchWithBuffer(req.StartVersion, 0, reqCtx.rpcCtx)
+	defer batch.Reset()
 	for i, m := range mutations {
 		if m.Op == kvrpcpb.Op_CheckNotExists {
 			continue
@@ -707,7 +707,6 @@ func (store *MVCCStore) prewriteMutations(reqCtx *requestCtx, mutations []*kvrpc
 		}
 		batch.Prewrite(m.Key, lock)
 	}
-
 	return store.writer.Write(batch)
 }
 
@@ -726,7 +725,7 @@ func (store *MVCCStore) tryOnePC(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 
 	reqCtx.onePCCommitTS = minCommitTS
 	store.updateLatestTS(minCommitTS)
-	batch := store.writer.NewWriteBatch(req.StartVersion, minCommitTS, reqCtx.rpcCtx)
+	batch := store.writer.NewWriteBatchWithBuffer(req.StartVersion, minCommitTS, reqCtx.rpcCtx)
 
 	for i, m := range mutations {
 		if m.Op == kvrpcpb.Op_CheckNotExists {
@@ -744,7 +743,7 @@ func (store *MVCCStore) tryOnePC(reqCtx *requestCtx, mutations []*kvrpcpb.Mutati
 	if err := store.writer.Write(batch); err != nil {
 		return false, err
 	}
-
+	batch.Reset()
 	return true, nil
 }
 

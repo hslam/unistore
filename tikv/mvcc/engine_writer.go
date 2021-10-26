@@ -25,6 +25,7 @@ type EngineWriter interface {
 	WritePessimisticLock(batch WriteBatch, doneFn func()) error
 	DeleteRange(start, end []byte, latchHandle LatchHandle) error
 	NewWriteBatch(startTS, commitTS uint64, ctx *kvrpcpb.Context) WriteBatch
+	NewWriteBatchWithBuffer(startTS, commitTS uint64, ctx *kvrpcpb.Context) WriteBatch
 }
 
 type LatchHandle interface {
@@ -38,4 +39,5 @@ type WriteBatch interface {
 	Rollback(key []byte, deleleLock bool)
 	PessimisticLock(key []byte, lock *MvccLock)
 	PessimisticRollback(key []byte)
+	Reset()
 }
