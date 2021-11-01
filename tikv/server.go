@@ -76,11 +76,11 @@ func NewServer(conf *config.Config, pdClient pd.Client) (*Server, error) {
 	allocator := &idAllocator{
 		pdCli: pdClient,
 	}
-	raftEngine, err := createRaftEngine(subPathRaft, &conf.RaftEngine)
+	raftEngines, err := createRaftEngines(subPathRaft, &conf.RaftEngine, conf.RaftStore.RaftWorkerCount)
 	if err != nil {
 		return nil, errors.AddStack(err)
 	}
-	recoverHandler, err := raftstore.NewRecoverHandler(raftEngine)
+	recoverHandler, err := raftstore.NewRecoverHandler(raftEngines)
 	if err != nil {
 		return nil, errors.AddStack(err)
 	}
@@ -89,7 +89,7 @@ func NewServer(conf *config.Config, pdClient pd.Client) (*Server, error) {
 		return nil, errors.AddStack(err)
 	}
 	http.DefaultServeMux.HandleFunc("/debug/db", eng.DebugHandler())
-	engines := raftstore.NewEngines(eng, raftEngine, kvPath, raftPath, listener)
+	engines := raftstore.NewEngines(eng, raftEngines, kvPath, raftPath, listener)
 	innerServer := raftstore.NewRaftInnerServer(engines, raftConf)
 	innerServer.Setup(pdClient)
 	router := innerServer.GetRaftstoreRouter()
@@ -133,6 +133,7 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	raftConf.RaftElectionTimeoutTicks = conf.RaftStore.RaftElectionTimeoutTicks
 
 	raftConf.SplitCheck.RegionMaxSize = uint64(conf.Server.RegionSize)
+	raftConf.RaftWorkerCnt = conf.RaftStore.RaftWorkerCount
 	raftConf.ApplyWorkerCnt = conf.RaftStore.ApplyWorkerCount
 	raftConf.GrpcRaftConnNum = uint64(conf.RaftStore.GRPCRaftConnNum)
 	raftConf.StatusAddr = conf.Server.StatusAddr
@@ -142,8 +143,8 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	}
 }
 
-func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {
-	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize)
+func createRaftEngines(subPath string, conf *config.RaftEngine, raftEnginesCount int) (*raftengine.Engines, error) {
+	return raftengine.OpenEngines(filepath.Join(conf.Path, subPath), conf.WALSize, raftEnginesCount)
 }
 
 func createKVEngine(subPath string, listener *raftstore.MetaChangeListener,

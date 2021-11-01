@@ -101,7 +101,7 @@ type RaftContext struct {
 	*GlobalContext
 	applyMsgs    *applyMsgs
 	ReadyRes     []*ReadyICPair
-	raftWB       *raftengine.WriteBatch
+	raftWB       *raftengine.WriteBatchs
 	pendingCount int
 	localStats   *storeStats
 }
@@ -211,7 +211,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	var regionPeers []*peerFsm
 
 	t := time.Now()
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewWriteBatchs(raftengine.BootstrapEngineIndex, bs.ctx.cfg.RaftWorkerCnt)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
 	ctx.storeMetaLock.Lock()
@@ -369,13 +369,31 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	workers := bs.workers
 	router := bs.router
 
-	bs.wg.Add(1 + ctx.cfg.ApplyWorkerCnt + 1) // raftWorker, applyWorker, storeWorker
-	rw := newRaftWorker(ctx, router.peerSender, router, ctx.cfg.ApplyWorkerCnt)
-	go rw.run(bs.closeCh, bs.wg)
+	bs.wg.Add(ctx.cfg.RaftWorkerCnt + ctx.cfg.ApplyWorkerCnt + 1) // raftWorker, applyWorker, storeWorker
+
+	applyResChs := make([]chan Msg, ctx.cfg.RaftWorkerCnt)
+	applyResSenders := make([]chan<- Msg, ctx.cfg.RaftWorkerCnt)
+	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
+		ch := make(chan Msg, cap(router.peerSenders[i]))
+		applyResChs[i] = ch
+		applyResSenders[i] = ch
+	}
+
+	applyChs := make([]chan *peerApplyBatch, ctx.cfg.ApplyWorkerCnt)
+	applyCtxes := make([]*applyContext, ctx.cfg.ApplyWorkerCnt)
+	for i := 0; i < ctx.cfg.ApplyWorkerCnt; i++ {
+		applyChs[i] = make(chan *peerApplyBatch, 256)
+		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResSenders, ctx.cfg)
+	}
+	log.S().Infof("raft worker cnt %d", ctx.cfg.RaftWorkerCnt)
+	for i := 0; i < ctx.cfg.RaftWorkerCnt; i++ {
+		rw := newRaftWorker(ctx, router.peerSenders[i], router, applyChs, applyResChs[i], i, ctx.cfg.RaftWorkerCnt)
+		go rw.run(bs.closeCh, bs.wg)
+	}
 	log.S().Infof("apply worker cnt %d", ctx.cfg.ApplyWorkerCnt)
 	for i := 0; i < ctx.cfg.ApplyWorkerCnt; i++ {
-		aw := newApplyWorker(router, i, rw.applyChs[i], rw.applyCtxes[i])
-		go aw.run(bs.wg)
+		aw := newApplyWorker(router, i, applyChs[i], applyCtxes[i])
+		go aw.run(bs.closeCh, bs.wg)
 	}
 
 	sw := newStoreWorker(ctx, router)
@@ -414,7 +432,7 @@ func (bs *raftBatchSystem) shutDown() {
 
 func createRaftBatchSystem(raftCfg *Config) (*router, *raftBatchSystem) {
 	storeSender, storeFsm := newStoreFsm(raftCfg)
-	router := newRouter(storeSender, storeFsm)
+	router := newRouter(storeSender, storeFsm, raftCfg.RaftWorkerCnt)
 	raftBatchSystem := &raftBatchSystem{
 		router:  router,
 		closeCh: make(chan struct{}),

@@ -125,6 +125,7 @@ type Config struct {
 	StatusAddr    string
 	GitHash       string
 
+	RaftWorkerCnt  int
 	ApplyWorkerCnt int
 
 	SplitCheck *splitCheckConfig
@@ -211,6 +212,7 @@ func NewDefaultConfig() *Config {
 		GrpcRaftConnNum:          1,
 		Addr:                     "127.0.0.1:20160",
 		SplitCheck:               newDefaultSplitCheckConfig(),
+		RaftWorkerCnt:            4,
 		ApplyWorkerCnt:           4,
 	}
 }

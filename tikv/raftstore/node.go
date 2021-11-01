@@ -132,7 +132,7 @@ func (n *Node) checkStore(engines *Engines) (uint64, error) {
 	return ident.StoreId, nil
 }
 
-func loadStoreIdent(raft *raftengine.Engine) (ident *raft_serverpb.StoreIdent, err error) {
+func loadStoreIdent(raft *raftengine.Engines) (ident *raft_serverpb.StoreIdent, err error) {
 	val := raft.GetState(0, StoreIdentKey())
 	if len(val) == 0 {
 		return nil, nil

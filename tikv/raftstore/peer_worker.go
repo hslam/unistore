@@ -82,13 +82,15 @@ func hashRegionID(regionID uint64) uint64 {
 type raftWorker struct {
 	pr *router
 
+	idx           int
+	raftWorkerCnt int
+
 	inboxes map[uint64]*peerInbox
 	ticker  *time.Ticker
 	raftCh  chan Msg
 	raftCtx *RaftContext
 
 	applyChs   []chan *peerApplyBatch
-	applyCtxes []*applyContext
 	applyResCh chan Msg
 
 	movePeerCandidate uint64
@@ -100,28 +102,22 @@ type raftWorker struct {
 	handleReadyDc *durationCollector
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyWorkerCnt int) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, ch chan Msg, pm *router, applyChs []chan *peerApplyBatch, applyResCh chan Msg, idx, raftWorkerCnt int) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
-		raftWB:        raftengine.NewWriteBatch(),
+		raftWB:        raftengine.NewWriteBatchs(uint64(idx), raftWorkerCnt),
 		localStats:    new(storeStats),
 	}
-	applyResCh := make(chan Msg, cap(ch))
-	applyChs := make([]chan *peerApplyBatch, applyWorkerCnt)
-	applyCtxes := make([]*applyContext, applyWorkerCnt)
-	for i := 0; i < applyWorkerCnt; i++ {
-		applyChs[i] = make(chan *peerApplyBatch, 256)
-		applyCtxes[i] = newApplyContext("", ctx.regionTaskSender, ctx.engine, applyResCh, ctx.cfg)
-	}
 	return &raftWorker{
+		idx:           idx,
+		raftWorkerCnt: raftWorkerCnt,
 		raftCh:        ch,
 		applyResCh:    applyResCh,
 		inboxes:       map[uint64]*peerInbox{},
 		raftCtx:       raftCtx,
 		pr:            pm,
 		applyChs:      applyChs,
-		applyCtxes:    applyCtxes,
 		handleMsgDc:   newDurationCollector("raft_handle_msg"),
 		readyAppendDc: newDurationCollector("raft_ready_append"),
 		writeDc:       newDurationCollector("raft_write"),
@@ -170,9 +166,6 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 	var raftMsgCount int
 	select {
 	case <-closeCh:
-		for _, applyCh := range rw.applyChs {
-			applyCh <- nil
-		}
 		return true
 	case msg := <-rw.raftCh:
 		reqCount++
@@ -184,7 +177,7 @@ func (rw *raftWorker) receiveMsgs(closeCh <-chan struct{}) (quit bool) {
 		respCount++
 		rw.getPeerInbox(msg.RegionID).append(msg)
 	case <-rw.ticker.C:
-		rw.pr.peers.Range(func(key, value interface{}) bool {
+		rw.pr.peers[rw.idx].Range(func(key, value interface{}) bool {
 			regionID := key.(uint64)
 			rw.getPeerInbox(regionID).append(NewPeerMsg(MsgTypeTick, regionID, nil))
 			return true
@@ -292,18 +285,19 @@ func newApplyWorker(r *router, idx int, ch chan *peerApplyBatch, ctx *applyConte
 }
 
 // run runs apply tasks, since it is already batched by raftCh, we don't need to batch it here.
-func (aw *applyWorker) run(wg *sync.WaitGroup) {
+func (aw *applyWorker) run(closeCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 	applyMetrics := metrics.WorkerPendingTaskTotal.WithLabelValues("apply-worker")
 	for {
-		batch := <-aw.ch
-		if batch == nil {
+		select {
+		case <-closeCh:
 			return
+		case batch := <-aw.ch:
+			for _, msg := range batch.applyMsgs {
+				batch.apply.handleMsg(aw.ctx, msg)
+			}
+			applyMetrics.Set(float64(len(aw.ch)))
 		}
-		for _, msg := range batch.applyMsgs {
-			batch.apply.handleMsg(aw.ctx, msg)
-		}
-		applyMetrics.Set(float64(len(aw.ch)))
 	}
 }
 
@@ -361,7 +355,6 @@ func newDurationCollector(name string) *durationCollector {
 func (dc *durationCollector) collect(dur time.Duration) {
 	dc.total += dur
 	dc.cnt++
-	metrics.WorkerTaskDurationSeconds.WithLabelValues(dc.name).Observe(float64(dur) / float64(time.Second))
 	if dur > 5*time.Millisecond {
 		dc.top = append(dc.top, dur)
 	}
