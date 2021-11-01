@@ -97,7 +97,7 @@ func (ic *InvokeContext) hasSnapshot() bool {
 	return ic.SnapData != nil
 }
 
-func (ic *InvokeContext) saveRaftStateTo(wb *raftengine.WriteBatch) {
+func (ic *InvokeContext) saveRaftStateTo(wb *raftengine.WriteBatchs) {
 	wb.SetState(ic.Region.Id, RaftStateKey(ic.Region.RegionEpoch.Version), ic.RaftState.Marshal())
 }
 
@@ -168,19 +168,19 @@ func NewPeerStorage(engines *Engines, region *metapb.Region, regionSched chan<- 
 	}, nil
 }
 
-func initRaftState(raftEngine *raftengine.Engine, region *metapb.Region) (raftState, error) {
+func initRaftState(raftEngines *raftengine.Engines, region *metapb.Region) (raftState, error) {
 	raftState := raftState{}
 	raftStateKey := RaftStateKey(region.RegionEpoch.Version)
-	val := raftEngine.GetState(region.Id, raftStateKey)
+	val := raftEngines.GetState(region.Id, raftStateKey)
 	if len(val) == 0 {
 		if len(region.Peers) > 0 {
 			// new split region
 			raftState.lastIndex = RaftInitLogIndex
 			raftState.term = RaftInitLogTerm
 			raftState.commit = RaftInitLogIndex
-			wb := raftengine.NewWriteBatch()
+			wb := raftengine.NewRegionWriteBatch(region.Id)
 			wb.SetState(region.Id, raftStateKey, raftState.Marshal())
-			err := raftEngine.Write(wb)
+			err := raftEngines.Write(wb)
 			if err != nil {
 				return raftState, err
 			}
@@ -208,7 +208,7 @@ func initApplyState(kv *engine.Engine, region *metapb.Region) (applyState, error
 	return applyState, nil
 }
 
-func initLastTerm(raftEngine *raftengine.Engine, region *metapb.Region,
+func initLastTerm(raftEngines *raftengine.Engines, region *metapb.Region,
 	raftState raftState, applyState applyState) (uint64, error) {
 	lastIdx := raftState.lastIndex
 	if lastIdx == 0 {
@@ -220,7 +220,7 @@ func initLastTerm(raftEngine *raftengine.Engine, region *metapb.Region,
 	} else {
 		y.Assert(lastIdx > RaftInitLogIndex)
 	}
-	entry := raftEngine.GetRegionRaftLogs(region.Id).Get(lastIdx)
+	entry := raftEngines.GetRegionRaftLogs(region.Id).Get(lastIdx)
 	if entry == nil {
 		return 0, errors.Errorf("[region %s] entry at %d doesn't exist, may lost data.", region, lastIdx)
 	}
@@ -394,7 +394,7 @@ func (ps *PeerStorage) GetEngineMeta() *engine.ShardMeta {
 // Append the given entries to the raft log using previous last index or self.last_index.
 // Return the new last index for later update. After we commit in the kv engine, we can set last_index
 // to the return one.
-func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []*eraftpb.Entry, raftWB *raftengine.WriteBatch) error {
+func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []*eraftpb.Entry, raftWB *raftengine.WriteBatchs) error {
 	if len(entries) == 0 {
 		return nil
 	}
@@ -409,7 +409,7 @@ func (ps *PeerStorage) Append(invokeCtx *InvokeContext, entries []*eraftpb.Entry
 	return nil
 }
 
-func (ps *PeerStorage) clearMeta(raftWB *raftengine.WriteBatch) {
+func (ps *PeerStorage) clearMeta(raftWB *raftengine.WriteBatchs) {
 	log.S().Infof("region %d:%d clear meta from peer storage", ps.region.Id, ps.region.RegionEpoch.Version)
 	ClearMeta(ps.Engines.raft, raftWB, ps.region)
 }
@@ -419,11 +419,11 @@ type CacheQueryStats struct {
 	miss uint64
 }
 
-func fetchEntriesTo(engine *raftengine.Engine, regionID, low, high, maxSize uint64, buf []*eraftpb.Entry) ([]*eraftpb.Entry, uint64, error) {
+func fetchEntriesTo(engines *raftengine.Engines, regionID, low, high, maxSize uint64, buf []*eraftpb.Entry) ([]*eraftpb.Entry, uint64, error) {
 	var totalSize uint64
 	nextIndex := low
 	exceededMaxSize := false
-	regionRaftLogs := engine.GetRegionRaftLogs(regionID)
+	regionRaftLogs := engines.GetRegionRaftLogs(regionID)
 	for i := low; i < high; i++ {
 		entry := regionRaftLogs.Get(i)
 		if entry == nil {
@@ -456,7 +456,7 @@ func fetchEntriesTo(engine *raftengine.Engine, regionID, low, high, maxSize uint
 	return nil, 0, raft.ErrUnavailable
 }
 
-func ClearMeta(raft *raftengine.Engine, raftWB *raftengine.WriteBatch, region *metapb.Region) {
+func ClearMeta(raft *raftengine.Engines, raftWB *raftengine.WriteBatchs, region *metapb.Region) {
 	regionID := region.Id
 	err := raft.IterateRegionStates(regionID, false, func(key, val []byte) error {
 		raftWB.SetState(regionID, y.Copy(key), nil)
@@ -467,7 +467,7 @@ func ClearMeta(raft *raftengine.Engine, raftWB *raftengine.WriteBatch, region *m
 	raftWB.TruncateRaftLog(regionID, endIdx)
 }
 
-func WritePeerState(raftWB *raftengine.WriteBatch, region *metapb.Region, state rspb.PeerState, mergeState *rspb.MergeState) {
+func WritePeerState(raftWB *raftengine.WriteBatchs, region *metapb.Region, state rspb.PeerState, mergeState *rspb.MergeState) {
 	regionState := new(rspb.RegionLocalState)
 	regionState.State = state
 	regionState.Region = region
@@ -479,7 +479,7 @@ func WritePeerState(raftWB *raftengine.WriteBatch, region *metapb.Region, state 
 }
 
 // Apply the peer with given snapshot.
-func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot, raftWB *raftengine.WriteBatch) error {
+func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot, raftWB *raftengine.WriteBatchs) error {
 	log.S().Infof("%v begin to apply snapshot", ps.Tag)
 
 	snapData := new(snapData)
@@ -538,7 +538,7 @@ func (ps *PeerStorage) ApplySnapshot(ctx *InvokeContext, snap *eraftpb.Snapshot,
 /// it explicitly to disk. If it's flushed to disk successfully, `post_ready` should be called
 /// to update the memory states properly.
 /// Do not modify ready in this function, this is a requirement to advance the ready object properly later.
-func (ps *PeerStorage) SaveReadyState(raftWB *raftengine.WriteBatch, ready *raft.Ready) (*InvokeContext, error) {
+func (ps *PeerStorage) SaveReadyState(raftWB *raftengine.WriteBatchs, ready *raft.Ready) (*InvokeContext, error) {
 	ctx := NewInvokeContext(ps)
 	if !raft.IsEmptySnap(&ready.Snapshot) {
 		if err := ps.ApplySnapshot(ctx, &ready.Snapshot, raftWB); err != nil {

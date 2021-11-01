@@ -25,12 +25,12 @@ import (
 type Engines struct {
 	kv       *engine.Engine
 	kvPath   string
-	raft     *raftengine.Engine
+	raft     *raftengine.Engines
 	raftPath string
 	listener *MetaChangeListener
 }
 
-func NewEngines(kv *engine.Engine, raft *raftengine.Engine, kvPath, raftPath string, listener *MetaChangeListener) *Engines {
+func NewEngines(kv *engine.Engine, raft *raftengine.Engines, kvPath, raftPath string, listener *MetaChangeListener) *Engines {
 	return &Engines{
 		kv:       kv,
 		kvPath:   kvPath,

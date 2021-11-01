@@ -17,13 +17,13 @@ import (
 )
 
 type RecoverHandler struct {
-	raftEngine    *raftengine.Engine
+	raftEngines   *raftengine.Engines
 	storeID       uint64
 	regionHandler *regionTaskHandler
 }
 
-func NewRecoverHandler(raftEngine *raftengine.Engine) (*RecoverHandler, error) {
-	storeIdent, err := loadStoreIdent(raftEngine)
+func NewRecoverHandler(raftEngines *raftengine.Engines) (*RecoverHandler, error) {
+	storeIdent, err := loadStoreIdent(raftEngines)
 	if err != nil {
 		return nil, err
 	}
@@ -31,8 +31,8 @@ func NewRecoverHandler(raftEngine *raftengine.Engine) (*RecoverHandler, error) {
 		return nil, nil
 	}
 	return &RecoverHandler{
-		raftEngine: raftEngine,
-		storeID:    storeIdent.StoreId,
+		raftEngines: raftEngines,
+		storeID:     storeIdent.StoreId,
 	}, nil
 }
 
@@ -40,7 +40,7 @@ func (h *RecoverHandler) Recover(kv *engine.Engine, shard *engine.Shard, meta *e
 	log.S().Infof("recover region:%d ver:%d", shard.ID, shard.Ver)
 	aCtx := &applyContext{
 		wb:      NewKVWriteBatch(kv),
-		engines: &Engines{kv: kv, raft: h.raftEngine},
+		engines: &Engines{kv: kv, raft: h.raftEngines},
 		execCtx: &applyExecContext{},
 	}
 	val, ok := shard.RecoverGetProperty(applyStateKey)
@@ -55,7 +55,7 @@ func (h *RecoverHandler) Recover(kv *engine.Engine, shard *engine.Shard, meta *e
 	fromApplyState.Unmarshal(val)
 	lowIdx := fromApplyState.appliedIndex + 1
 	highIdx := committedIdx
-	entries, _, err1 := fetchEntriesTo(h.raftEngine, shard.ID, lowIdx, highIdx+1, math.MaxUint64, nil)
+	entries, _, err1 := fetchEntriesTo(h.raftEngines, shard.ID, lowIdx, highIdx+1, math.MaxUint64, nil)
 	if err1 != nil {
 		return errors.AddStack(err1)
 	}
@@ -128,7 +128,7 @@ func (h *RecoverHandler) Recover(kv *engine.Engine, shard *engine.Shard, meta *e
 }
 
 func (h *RecoverHandler) loadRegionMeta(id, ver uint64) (region *metapb.Region, committedIdx uint64, err error) {
-	err = h.raftEngine.IterateRegionStates(id, true, func(key, val []byte) error {
+	err = h.raftEngines.IterateRegionStates(id, true, func(key, val []byte) error {
 		if key[0] != RegionMetaKeyByte {
 			return nil
 		}
@@ -147,7 +147,7 @@ func (h *RecoverHandler) loadRegionMeta(id, ver uint64) (region *metapb.Region, 
 	if err != io.EOF {
 		return nil, 0, err
 	}
-	val := h.raftEngine.GetState(region.GetId(), RaftStateKey(region.RegionEpoch.Version))
+	val := h.raftEngines.GetState(region.GetId(), RaftStateKey(region.RegionEpoch.Version))
 	y.Assert(len(val) > 0)
 	var raftState raftState
 	raftState.Unmarshal(val)
@@ -170,7 +170,7 @@ func (h *RecoverHandler) IterateMeta(fn func(meta *enginepb.ChangeSet) error) er
 	if h == nil {
 		return nil
 	}
-	err := h.raftEngine.IterateAllStates(false, func(regionID uint64, key, val []byte) error {
+	err := h.raftEngines.IterateAllStates(false, func(regionID uint64, key, val []byte) error {
 		if key[0] == KVEngineMetaKeyByte {
 			cs := new(enginepb.ChangeSet)
 			err := cs.Unmarshal(val)

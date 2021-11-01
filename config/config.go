@@ -69,8 +69,9 @@ type Engine struct {
 }
 
 type RaftEngine struct {
-	Path    string `toml:"path"`
-	WALSize int64  `toml:"wal-size"`
+	Path    string   `toml:"path"`
+	Paths   []string `toml:"paths"`
+	WALSize int64    `toml:"wal-size"`
 }
 
 type S3Options struct {
@@ -130,6 +131,7 @@ var DefaultConf = Config{
 	},
 	RaftEngine: RaftEngine{
 		Path:    "/tmp/badger",
+		Paths:   []string{"/tmp/badger"},
 		WALSize: 1024 * MB,
 	},
 	PessimisticTxn: PessimisticTxn{

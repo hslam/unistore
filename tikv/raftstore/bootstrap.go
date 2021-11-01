@@ -37,7 +37,7 @@ func BootstrapStore(engines *Engines, clussterID, storeID uint64) error {
 	}
 	ident.ClusterId = clussterID
 	ident.StoreId = storeID
-	wb := raftengine.NewWriteBatch()
+	wb := raftengine.NewRegionWriteBatch(raftengine.BootstrapEngineIndex)
 	val, err := ident.Marshal()
 	if err != nil {
 		return err
@@ -63,7 +63,7 @@ func PrepareBootstrap(engines *Engines, storeID, regionID, peerID uint64) (*meta
 func writePrepareBootstrap(engines *Engines, region *metapb.Region) error {
 	state := new(rspb.RegionLocalState)
 	state.Region = region
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewRegionWriteBatch(region.Id)
 	val, _ := state.Marshal()
 	raftWB.SetState(0, PrepareBootstrapKey(), val)
 	raftWB.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), val)
@@ -113,7 +113,7 @@ func newBootstrapRegion(regionID, peerID, storeID uint64) *metapb.Region {
 	}
 }
 
-func writeInitialRaftState(raftWB *raftengine.WriteBatch, region *metapb.Region) {
+func writeInitialRaftState(raftWB *raftengine.WriteBatchs, region *metapb.Region) {
 	raftState := raftState{
 		lastIndex: RaftInitLogIndex,
 		term:      RaftInitLogTerm,
@@ -123,7 +123,7 @@ func writeInitialRaftState(raftWB *raftengine.WriteBatch, region *metapb.Region)
 }
 
 func ClearPrepareBootstrap(engines *Engines, region *metapb.Region) error {
-	wb := raftengine.NewWriteBatch()
+	wb := raftengine.NewRegionWriteBatch(region.Id)
 	wb.SetState(0, PrepareBootstrapKey(), nil)
 	wb.SetState(region.Id, RegionStateKey(region.RegionEpoch.Version, region.RegionEpoch.ConfVer), nil)
 	wb.SetState(region.Id, RaftStateKey(region.RegionEpoch.Version), nil)
@@ -136,7 +136,7 @@ func ClearPrepareBootstrap(engines *Engines, region *metapb.Region) error {
 }
 
 func ClearPrepareBootstrapState(engines *Engines) error {
-	wb := raftengine.NewWriteBatch()
+	wb := raftengine.NewRegionWriteBatch(raftengine.BootstrapEngineIndex)
 	wb.SetState(0, PrepareBootstrapKey(), nil)
 	err := engines.raft.Write(wb)
 	return errors.WithStack(err)

@@ -32,15 +32,20 @@ import (
 
 // router routes a message to a peer.
 type router struct {
-	peers       sync.Map
-	peerSender  chan Msg
+	peers       []sync.Map
+	peerSenders []chan Msg
 	storeSender chan<- Msg
 	storeFsm    *storeFsm
 }
 
-func newRouter(storeSender chan<- Msg, storeFsm *storeFsm) *router {
+func newRouter(storeSender chan<- Msg, storeFsm *storeFsm, raftWorkerCnt int) *router {
+	peerSenders := make([]chan Msg, raftWorkerCnt)
+	for i := 0; i < raftWorkerCnt; i++ {
+		peerSenders[i] = make(chan Msg, 65536)
+	}
 	pm := &router{
-		peerSender:  make(chan Msg, 4096),
+		peers:       make([]sync.Map, raftWorkerCnt),
+		peerSenders: peerSenders,
 		storeSender: storeSender,
 		storeFsm:    storeFsm,
 	}
@@ -48,7 +53,8 @@ func newRouter(storeSender chan<- Msg, storeFsm *storeFsm) *router {
 }
 
 func (pr *router) get(regionID uint64) *peerState {
-	v, ok := pr.peers.Load(regionID)
+	idx := hashRegionID(regionID) % uint64(len(pr.peers))
+	v, ok := pr.peers[idx].Load(regionID)
 	if ok {
 		return v.(*peerState)
 	}
@@ -63,15 +69,17 @@ func (pr *router) register(peer *peerFsm) {
 		peer:  peer,
 		apply: apply,
 	}
-	pr.peers.Store(id, newPeer)
+	idx := hashRegionID(id) % uint64(len(pr.peers))
+	pr.peers[idx].Store(id, newPeer)
 }
 
 func (pr *router) close(regionID uint64) {
-	v, ok := pr.peers.Load(regionID)
+	idx := hashRegionID(regionID) % uint64(len(pr.peers))
+	v, ok := pr.peers[idx].Load(regionID)
 	if ok {
 		ps := v.(*peerState)
 		atomic.StoreUint32(&ps.closed, 1)
-		pr.peers.Delete(regionID)
+		pr.peers[idx].Delete(regionID)
 	}
 }
 
@@ -81,7 +89,8 @@ func (pr *router) send(regionID uint64, msg Msg) error {
 	if p == nil || atomic.LoadUint32(&p.closed) == 1 {
 		return errors.WithStack(errPeerNotFound)
 	}
-	pr.peerSender <- msg
+	idx := hashRegionID(regionID) % uint64(len(pr.peerSenders))
+	pr.peerSenders[idx] <- msg
 	return nil
 }
 
