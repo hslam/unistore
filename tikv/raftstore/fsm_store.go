@@ -101,7 +101,7 @@ type RaftContext struct {
 	*GlobalContext
 	applyMsgs    *applyMsgs
 	ReadyRes     []*ReadyICPair
-	raftWB       *raftengine.WriteBatch
+	raftWB       *raftengine.MergeWriteBatch
 	pendingCount int
 	localStats   *storeStats
 }
@@ -211,7 +211,7 @@ func (bs *raftBatchSystem) loadPeers() ([]*peerFsm, error) {
 	var regionPeers []*peerFsm
 
 	t := time.Now()
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewMergeWriteBatch(raftengine.BootstrapEngineIndex)
 	var applyingRegions []*metapb.Region
 	var mergingCount int
 	ctx.storeMetaLock.Lock()
@@ -374,9 +374,9 @@ func (bs *raftBatchSystem) startWorkers(peers []*peerFsm) {
 	mw := newRaftMsgWorker(ctx, router.peerSender, router)
 	go mw.run(bs.closeCh, bs.wg)
 
-	lrw := newRaftWorker(ctx, mw.leaderCh, mw.applyChs)
+	lrw := newRaftWorker(ctx, mw.leaderCh, mw.applyChs, raftengine.LeaderEngineIndex)
 	go lrw.run(bs.closeCh, bs.wg)
-	frw := newRaftWorker(ctx, mw.followerCh, mw.applyChs)
+	frw := newRaftWorker(ctx, mw.followerCh, mw.applyChs, raftengine.FollowerEngineIndex)
 	go frw.run(bs.closeCh, bs.wg)
 
 	log.S().Infof("apply worker cnt %d", ctx.cfg.ApplyWorkerCnt)

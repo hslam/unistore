@@ -453,7 +453,7 @@ func (p *Peer) Destroy(engine *Engines, keepData bool) error {
 	log.S().Infof("%v begin to destroy", p.Tag)
 
 	// Set Tombstone state explicitly
-	raftWB := raftengine.NewWriteBatch()
+	raftWB := raftengine.NewMergeWriteBatch(raftengine.FollowerEngineIndex)
 	p.Store().clearMeta(raftWB)
 	var mergeState *rspb.MergeState
 	if p.PendingMergeState != nil {
@@ -907,7 +907,7 @@ func (p *Peer) handleChangeSet(ctx *RaftContext, e *eraftpb.Entry) {
 	}
 	shardMeta.ApplyChangeSet(change)
 	log.S().Infof("shard meta %d:%d handle change set engine meta, apply change %s", shardMeta.ID, shardMeta.Ver, change)
-	ctx.raftWB.SetState(p.regionId, KVEngineMetaKey(), shardMeta.Marshal())
+	ctx.raftWB.SetState(p.regionId, KVEngineMetaKey(), shardMeta.Marshal(), shardMeta.Ver)
 }
 
 func (p *Peer) handlePendingSplit(ctx *RaftContext, e *eraftpb.Entry, splits *raft_cmdpb.BatchSplitRequest) {
@@ -922,7 +922,7 @@ func (p *Peer) handlePendingSplit(ctx *RaftContext, e *eraftpb.Entry, splits *ra
 	newMetas := ps.GetEngineMeta().ApplySplit(changeSet)
 	for _, newMeta := range newMetas {
 		log.S().Infof("%d:%d split add snapshot files %v", newMeta.ID, newMeta.Ver, newMeta.AllFiles())
-		ctx.raftWB.SetState(newMeta.ID, KVEngineMetaKey(), newMeta.Marshal())
+		ctx.raftWB.SetState(newMeta.ID, KVEngineMetaKey(), newMeta.Marshal(), newMeta.Ver)
 		if newMeta.ID == p.regionId {
 			ps.shardMeta = newMeta
 		}

@@ -100,11 +100,11 @@ type raftWorker struct {
 	handleReadyDc *durationCollector
 }
 
-func newRaftWorker(ctx *GlobalContext, ch chan *peerInbox, applyChs []chan *peerApplyBatch) *raftWorker {
+func newRaftWorker(ctx *GlobalContext, ch chan *peerInbox, applyChs []chan *peerApplyBatch, engineIndex raftengine.EngineIndex) *raftWorker {
 	raftCtx := &RaftContext{
 		GlobalContext: ctx,
 		applyMsgs:     new(applyMsgs),
-		raftWB:        raftengine.NewWriteBatch(),
+		raftWB:        raftengine.NewMergeWriteBatch(engineIndex),
 		localStats:    new(storeStats),
 	}
 	return &raftWorker{

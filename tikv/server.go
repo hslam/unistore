@@ -144,8 +144,8 @@ func setupRaftStoreConf(raftConf *raftstore.Config, conf *config.Config) {
 	}
 }
 
-func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.Engine, error) {
-	return raftengine.Open(filepath.Join(conf.Path, subPath), conf.WALSize)
+func createRaftEngine(subPath string, conf *config.RaftEngine) (*raftengine.MergeEngine, error) {
+	return raftengine.OpenMergeEngines(filepath.Join(conf.Path, subPath), conf.WALSize)
 }
 
 func createKVEngine(subPath string, listener *raftstore.MetaChangeListener,
